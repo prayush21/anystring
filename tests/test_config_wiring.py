@@ -1,6 +1,6 @@
 """Every Config and Calibration key is read by some production code, so no knob is dead.
 
-Keys only the integration layer (WP5) will read are listed in PENDING until it exists.
+Keys whose reader does not exist yet go in PENDING.
 """
 
 from __future__ import annotations
@@ -13,14 +13,7 @@ from racketguitar.config import Calibration, Config
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PENDING = {  # read by WP5 (app, ui, replay), which does not exist yet
-    "ui.mirror",
-    "ui.max_fps",
-    "ui.flash_ms",
-    "ui.trail_frames",
-    "replay.record_dir",
-    "camera.device",
-}
+PENDING: set[str] = set()  # keys waiting for code that does not exist yet
 
 
 def _attributes_read() -> set[str]:

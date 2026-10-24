@@ -10,6 +10,7 @@ import pytest
 from racketguitar.capture.mic import detect_onsets
 from racketguitar.config import Calibration, Config, GateConfig
 from racketguitar.play.gate import (
+    GRIP_SCORE_VERSION,
     Gate,
     GripClassifier,
     OnsetWindow,
@@ -150,10 +151,13 @@ def test_lost_hand_goes_unknown_after_hold():
 
 def test_calibration_shifts_thresholds():
     assert grip_thresholds(Calibration()) == grip_thresholds()
-    lo, hi = grip_thresholds(Calibration(grip_closed_score=0.2, grip_open_score=0.4))
-    assert lo == pytest.approx(0.28) and hi == pytest.approx(0.32)
+    lo, hi = grip_thresholds(
+        Calibration(grip_closed_score=0.2, grip_open_score=0.4, grip_version=GRIP_SCORE_VERSION)
+    )
+    h = GateConfig().grip_hysteresis
+    assert lo == pytest.approx(0.2 + (0.5 - h) * 0.2) and hi == pytest.approx(0.2 + (0.5 + h) * 0.2)
     # A closed score not below the open score is ignored.
-    bad = Calibration(grip_closed_score=0.5, grip_open_score=0.3)
+    bad = Calibration(grip_closed_score=0.5, grip_open_score=0.3, grip_version=GRIP_SCORE_VERSION)
     assert grip_thresholds(bad) == grip_thresholds()
 
 
@@ -396,3 +400,34 @@ def test_hit_times_earlier_than_the_latest_hand_frame():
     drive(p, "pick", 2.0)
     drive(p, "open", 2.033, frames=2)
     assert p.grip == "open" and not p.allows(2.010)
+
+
+def test_onset_slightly_after_the_crossing_counts():
+    """Onset timing and crossing interpolation each err by a few ms, so a contact
+    measured up to ``onset_after_ms`` after its camera crossing still opens the gate."""
+    cfg = GateConfig(pick_grip=False, mic=True)
+    g = Gate(cfg)
+    g.observe_onset(Onset(1.008, 10.0))
+    assert g.allows(1.000)
+    late = Gate(cfg)
+    late.observe_onset(Onset(1.000 + (cfg.onset_after_ms + 2) / 1000, 10.0))
+    assert not late.allows(1.000)
+
+
+def test_calibration_from_another_score_version_is_ignored():
+    old = Calibration(grip_closed_score=0.2, grip_open_score=0.4)  # no version: pre-v2
+    assert grip_thresholds(old) == grip_thresholds()
+    assert calibrate_grip([hand("pick")], [hand("open")]).grip_version == GRIP_SCORE_VERSION
+
+
+def test_score_does_not_spike_when_the_palm_turns_edge_on():
+    """Foreshorten the hand along its wrist -> knuckles axis, as a palm turning edge-on
+    to the camera does. The score must stay near the face-on value instead of blowing up
+    because the wrist -> middle-knuckle length collapses."""
+    lm = place_hand("open", (640, 360), palm_px=90.0)
+    face_on = grip_score(lm)
+    axis = (lm[9] - lm[0]) / np.linalg.norm(lm[9] - lm[0])
+    rel = lm - lm[0]
+    along = rel @ axis
+    squashed = lm[0] + rel - np.outer(along * 0.8, axis)  # 80 % shorter along the axis
+    assert grip_score(squashed) < 2.0 * face_on

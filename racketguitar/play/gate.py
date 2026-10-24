@@ -40,7 +40,10 @@ __all__ = [
     "make_gate",
     "grip_score",
     "grip_thresholds",
+    "grip_calibrated",
+    "hand_size",
     "calibrate_grip",
+    "GRIP_SCORE_VERSION",
 ]
 
 TIME_EPS = 1e-9  # seconds; window boundaries are inclusive despite float rounding
@@ -49,17 +52,30 @@ KEEP_S = 1.0  # onsets and notes older than this (beyond every window) are dropp
 _WRIST, _THUMB_TIP, _MIDDLE_MCP = 0, 4, 9
 _INDEX = (5, 6, 7, 8)
 _REACH = ((9, 12), (13, 16), (17, 20))  # (MCP, tip) of middle, ring, pinky
+_SIZE_BONES = ((0, 5), (0, 9), (0, 13), (0, 17), (5, 17))
+# Bumped whenever grip_score changes: calibrations recorded with another version are
+# ignored (and the app recalibrates), since their scores are on a different scale.
+GRIP_SCORE_VERSION = 2
 
 
 def _landmarks(hand: HandObs | np.ndarray) -> np.ndarray:
     return np.asarray(hand.raw if isinstance(hand, HandObs) else hand, dtype=float)
 
 
+def hand_size(lm: np.ndarray) -> float:
+    """The palm's largest bone (wrist to the index, middle, ring and pinky knuckles, and
+    across the knuckles). Unlike wrist -> middle knuckle alone it stays near the true
+    size when the palm turns edge-on to the camera, so the score does not spike."""
+    return max(float(np.hypot(*(lm[a] - lm[b]))) for a, b in _SIZE_BONES)
+
+
 def grip_score(hand: HandObs | np.ndarray) -> float:
     """Scalar grip score of one hand (lower = more closed); NaN if the palm is degenerate."""
     lm = _landmarks(hand)
-    palm = float(np.hypot(*(lm[_MIDDLE_MCP] - lm[_WRIST])))
-    if not palm > 1e-6 or not np.all(np.isfinite(lm)):
+    if not np.all(np.isfinite(lm)):
+        return math.nan
+    palm = hand_size(lm)
+    if not palm > 1e-6:
         return math.nan
     gap = min(_point_segment(lm[_THUMB_TIP], lm[i], lm[j]) for i, j in pairwise(_INDEX))
     reach = sum(float(np.hypot(*(lm[tip] - lm[mcp]))) for mcp, tip in _REACH) / len(_REACH)
@@ -72,17 +88,23 @@ def _point_segment(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
     return float(np.hypot(*(p - (a + s * ab))))
 
 
+def grip_calibrated(cal: Calibration) -> bool:
+    """Whether ``cal`` holds grip scores this version of ``grip_score`` can use."""
+    return cal.grip_closed_score is not None and cal.grip_version == GRIP_SCORE_VERSION
+
+
 def grip_thresholds(
     calibration: Calibration | None = None, cfg: GateConfig | None = None
 ) -> tuple[float, float]:
     """``(close_below, open_above)`` from the calibrated closed/open scores, else the
     ``GateConfig`` defaults (template pick grip ~0.16, open hand ~0.80).
 
-    A calibration whose closed score is not below its open score is ignored.
+    A calibration whose closed score is not below its open score, or that was recorded
+    with another ``GRIP_SCORE_VERSION``, is ignored.
     """
     cfg = cfg or GateConfig()
     c, o = cfg.grip_closed_default, cfg.grip_open_default
-    if calibration is not None:
+    if calibration is not None and grip_calibrated(calibration):
         cc, oo = calibration.grip_closed_score, calibration.grip_open_score
         if cc is not None and oo is not None and cc < oo:
             c, o = cc, oo
@@ -111,7 +133,12 @@ def calibrate_grip(
     c, o = scores
     if not c < o:
         raise ValueError(f"closed grip score {c:.3f} is not below open score {o:.3f}")
-    return replace(base or Calibration(), grip_closed_score=c, grip_open_score=o)
+    return replace(
+        base or Calibration(),
+        grip_closed_score=c,
+        grip_open_score=o,
+        grip_version=GRIP_SCORE_VERSION,
+    )
 
 
 class GripClassifier:
@@ -161,7 +188,9 @@ class GripClassifier:
 class OnsetWindow:
     """The mic half of the gate. Not thread-safe; tolerant of call order.
 
-    * A crossing at ``t`` passes if a usable onset lies in ``[t - lookback, t]``.
+    * A crossing at ``t`` passes if a usable onset lies in ``[t - lookback, t + after]``.
+      ``after`` absorbs onset-timing and crossing-interpolation error, so a contact
+      measured a few ms after its camera crossing still counts.
     * Hold: the newest such onset becomes the sweep anchor once a crossing passes, and
       later crossings pass until ``anchor + hold`` even with no new onset, so one
       onset opens the gate for a whole sweep. A stray onset that admitted no crossing
@@ -182,8 +211,10 @@ class OnsetWindow:
         hold_ms: float = 150.0,
         bleed_ignore_ms: float = 25.0,
         latency_ms: float = GateConfig.output_latency_ms,
+        after_ms: float = 0.0,
     ) -> None:
         self.lookback = lookback_ms / 1000
+        self.after = after_ms / 1000
         self.hold = hold_ms / 1000
         self.ignore_after = (latency_ms + bleed_ignore_ms) / 1000
         self._onsets: deque[float] = deque(maxlen=512)
@@ -206,7 +237,9 @@ class OnsetWindow:
         self._prune(t)
         best = None
         for to in self._onsets:
-            if t - self.lookback - TIME_EPS <= to <= t + TIME_EPS and not self.is_bleed(to):
+            if t - self.lookback - TIME_EPS <= to <= t + self.after + TIME_EPS and not (
+                self.is_bleed(to)
+            ):
                 if best is None or to > best:
                     best = to
         if best is not None:
@@ -245,7 +278,11 @@ class Gate:
         )
         self.classifier = GripClassifier(self.cfg.grip_hold_frames, cal, self.cfg)
         self.window = OnsetWindow(
-            self.cfg.onset_lookback_ms, self.cfg.onset_hold_ms, self.cfg.bleed_ignore_ms, latency
+            self.cfg.onset_lookback_ms,
+            self.cfg.onset_hold_ms,
+            self.cfg.bleed_ignore_ms,
+            latency,
+            self.cfg.onset_after_ms,
         )
 
     @property

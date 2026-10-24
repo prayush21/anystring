@@ -221,3 +221,23 @@ def test_reset(cfg):
     _play(engine, frames[:-2], fret_t=0.4)
     engine.reset()
     assert engine.process(make_pose(frames[-1].t), [frames[-1]]) == []
+
+
+def test_a_hand_on_the_shaft_is_never_the_strumming_hand():
+    """With chords on the grip only, a fist holding the shaft is not fretting; it must
+    not be taken for the strumming hand either (it would arm the gate as a fist)."""
+    from racketguitar.config import Config
+    from racketguitar.geometry.racket import HandleAxis, RacketFrame
+    from racketguitar.play.engine import split_hands
+    from tests.fakes import hand_obs, make_pose, place_hand, uv_to_px
+
+    cfg = Config().with_overrides({"chords": {"handle_u_near": -1.2, "handle_u_far": -2.0}})
+    pose = make_pose()
+    frame = RacketFrame.from_pose(pose)
+    handle = HandleAxis.from_config(cfg.chords)
+    shaft = hand_obs(0.0, place_hand("fist", uv_to_px(pose, -0.5, 0.0), anchor=9, palm_px=80))
+    strum = hand_obs(0.0, place_hand("pick", uv_to_px(pose, 0.5, 0.45), palm_px=80))
+    far = hand_obs(0.0, place_hand("pick", uv_to_px(pose, 0.5, 2.5), palm_px=80))
+    assert split_hands(frame, [shaft], handle, 9) == (None, None)
+    assert split_hands(frame, [shaft, strum], handle, 9) == (None, strum)
+    assert split_hands(frame, [far], handle, 9) == (None, None)  # nowhere near the head

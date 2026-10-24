@@ -13,3 +13,4 @@ models/
 recordings/
 *.wav
 !tests/data/**/*.wav
+markers.pdf

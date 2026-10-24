@@ -40,6 +40,7 @@ OWNERS = {
     "racketguitar/play/gate.py": "WP4",
     "tests/gate/": "WP4",
     "racketguitar/app.py": "WP5",
+    "racketguitar/pipeline.py": "WP5",
     "racketguitar/ui/": "WP5",
     "racketguitar/replay/": "WP5",
     "tools/latency_probe.py": "WP5",

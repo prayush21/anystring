@@ -11,7 +11,10 @@ uv sync                      # install (Python 3.12, deps pinned in uv.lock)
 uv run pytest                # headless suite; hardware tests are deselected
 uv run pytest -m hardware    # camera/mic/speaker tests, MacBook only
 uv run ruff check . && uv run ruff format .
-uv run racketguitar          # the app (WP5; a stub until Phase 2)
+uv run racketguitar fetch-model   # once: MediaPipe hand model into models/
+uv run racketguitar          # play (calibrates on first run); `calibrate`, `replay DIR`
+uv run python -m tools.print_markers -o markers.pdf
+uv run python -m tools.latency_probe analyze take.wav
 ```
 
 ## Architecture
@@ -87,7 +90,7 @@ enforces this with an ownership map:
 | WP2 Play logic | `geometry/`, `play/strum.py`, `play/chords.py`, `play/mute.py`, `play/engine.py`, `tests/play/` |
 | WP3 Audio | `audio/`, `tests/audio/` |
 | WP4 Contact gate | `capture/mic.py`, `play/gate.py`, `tests/gate/` |
-| WP5 Integration | `app.py`, `ui/`, `replay/`, `tools/latency_probe.py` (the only layer allowed to import across packages) |
+| WP5 Integration | `app.py`, `pipeline.py`, `ui/`, `replay/`, `tools/latency_probe.py`, `tests/integration/` (the only layer allowed to import across packages) |
 
 `play/` and `capture/` are shared directories: WP2 and WP4 both live in `play/`, WP1
 and WP4 in `capture/`, and they still must not import each other. A new file there
@@ -126,3 +129,17 @@ Work is gated: no phase starts until the lead approves the previous gate. Phase 
 WP0 (this skeleton). Phase 1 is WP1 to WP4 in parallel, each built against only its
 own row of the PID's work-package table. Next comes WP5 integration, then on-device
 acceptance on the MacBook, then the WP6 verification by a fresh agent.
+
+## Integration (WP5)
+
+- `pipeline.Pipeline.step(FrameInput)` is the one per-frame play step: drain onsets into
+  the gate, then run the engine. The live app and the replay harness both call it, so
+  a replay proves the live behaviour. Never add play logic outside it.
+- The live app (`app.LiveApp`) detects markers and then tracks them as separate calls,
+  so each frame's raw detections are recorded. Replay can feed the recorded
+  observations (exact), re-track from recorded corners or re-detect on the lossless
+  FFV1 video (`--from-corners`, `--from-video`), and re-detect onsets from `mic.wav`
+  (`--from-mic`). `tests/integration/song.py` is a scripted four-chord performance used
+  end to end.
+- `audio/probe.py` (`--probe-tone`) plays a 1 kHz beep per note, so
+  `tools/latency_probe.py` can measure tap-to-sound latency from a phone recording.

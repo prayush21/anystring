@@ -132,6 +132,9 @@ class StrumConfig:
     finger_dedupe_ms: float = 150.0  # a second fingertip's same-direction pass is a duplicate
     speed_window_ms: float = 70.0  # speed is measured over the current one-direction run
     max_tip_speed: float = 40.0  # faster than this between frames = tracking jump, not strum
+    # Only a hand whose palm is within this of the head centre (head lengths), and not
+    # on the neck, can be the strumming hand: a fist on the shaft must never arm.
+    hand_max_dist: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -170,6 +173,7 @@ class GateConfig:
     mic: bool = False  # optional second gate; both on = a crossing needs both
     grip_hold_frames: int = 2  # frames a new grip state must persist before it flips
     onset_lookback_ms: float = 80.0  # a crossing plays if an onset came this recently
+    onset_after_ms: float = 10.0  # ... or at most this long after it (timing error)
     onset_hold_ms: float = 150.0  # an onset keeps the gate open this long during a sweep
     bleed_ignore_ms: float = 25.0  # ignore onsets this soon after each emitted note
     # Note detection -> sound leaving the speaker; anchors the bleed window until
@@ -177,7 +181,10 @@ class GateConfig:
     output_latency_ms: float = 30.0
     grip_closed_default: float = 0.25  # grip scores used until the user calibrates
     grip_open_default: float = 0.80
-    grip_hysteresis: float = 0.1  # close below 40 %, open above 60 % of closed -> open
+    # Arm below 25 %, turn off above 75 % of the way from the calibrated pick grip to the
+    # spread hand; in between the state holds. A wide dead zone makes stopping a
+    # deliberate spread (measured on a real take: half the chatter of a 40-60 band).
+    grip_hysteresis: float = 0.25
 
 
 @dataclass(frozen=True)
@@ -225,6 +232,9 @@ class UIConfig:
 @dataclass(frozen=True)
 class ReplayConfig:
     record_dir: str = "recordings"
+    # Also record lossless camera video, for --from-video replays. Off by default: it is
+    # about 0.8 GB a minute and can drop frames; the recorded data replays exactly anyway.
+    video: bool = False
 
 
 @dataclass(frozen=True)
@@ -262,6 +272,7 @@ class Calibration:
     mic_noise_floor: float | None = None
     mic_brush_level: float | None = None
     detect_to_audio_ms: float | None = None  # last measured internal latency
+    grip_version: int | None = None  # play.gate.GRIP_SCORE_VERSION the grip scores used
 
 
 def home_dir() -> Path:

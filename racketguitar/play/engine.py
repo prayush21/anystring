@@ -26,7 +26,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from racketguitar.config import ChordConfig, Config, VelocityConfig
+from racketguitar.config import ChordConfig, Config, StrumConfig, VelocityConfig
 from racketguitar.geometry.racket import (
     HandleAxis,
     RacketFrame,
@@ -69,6 +69,7 @@ def split_hands(
     *,
     max_v: float = ChordConfig.fret_max_v,
     t_margin: float = ChordConfig.fret_t_margin,
+    strum_max_dist: float = StrumConfig.hand_max_dist,
 ) -> tuple[HandObs | None, HandObs | None]:
     """``(fretting, strumming)`` for one frame; either may be None.
 
@@ -83,13 +84,17 @@ def split_hands(
             d = handle.distance(uv)
             if d < best:
                 fret_i, best = i, d
+    # The strumming hand is the other hand nearest the head centre, if it is near the
+    # head at all and not holding the neck (a hand on the shaft outside the chord
+    # sections is not fretting, but it is not strumming either).
     strum_i, best = -1, np.inf
     for i, h in enumerate(hands):
         if i == fret_i:
             continue
         uv = frame.to_uv(palm_centre(h.landmarks))
+        on_neck = uv[0] < 0.0 and abs(uv[1]) <= max_v
         d = float(np.hypot(uv[0] - 0.5, uv[1]))
-        if d < best:
+        if not on_neck and d <= strum_max_dist and d < best:
             strum_i, best = i, d
     return (
         hands[fret_i] if fret_i >= 0 else None,
@@ -189,6 +194,7 @@ class Engine:
                 self._knuckle,
                 max_v=self._cfg.chords.fret_max_v,
                 t_margin=self._cfg.chords.fret_t_margin,
+                strum_max_dist=self._cfg.strum.hand_max_dist,
             )
         else:
             low_e_neg_v = self._orientation.low_e_neg_v

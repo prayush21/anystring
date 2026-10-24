@@ -341,6 +341,7 @@ name = "racketguitar"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "mediapipe" },
     { name = "numpy" },
     { name = "opencv-contrib-python" },
@@ -363,6 +364,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2024.2" },
     { name = "mediapipe", specifier = ">=0.10.14" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "opencv-contrib-python", specifier = ">=4.10" },
