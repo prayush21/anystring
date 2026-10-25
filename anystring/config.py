@@ -44,6 +44,7 @@ __all__ = [
     "ReplayConfig",
     "ClipConfig",
     "SongConfig",
+    "CoachConfig",
     "Config",
     "Calibration",
     "home_dir",
@@ -270,6 +271,39 @@ class SongConfig:
 
 
 @dataclass(frozen=True)
+class CoachConfig:
+    """Spoken feedback on a take (``coach/``): measured from the play log, put into words
+    by Claude and spoken by ElevenLabs on a worker thread, never on the play path."""
+
+    after_song: bool = True  # give feedback when a song reaches its end
+    speak: bool = True  # say it aloud; otherwise it is only shown and printed
+    llm: bool = True  # phrase it with Claude ($ANTHROPIC_API_KEY); otherwise a fixed template
+    llm_model: str = "claude-opus-5-5"
+    llm_effort: str = "low"  # short spoken feedback needs little thinking
+    llm_max_tokens: int = 2000
+    llm_timeout_s: float = 30.0
+    max_words: int = 60  # spoken feedback is at most about this long
+    tts_voice: str = "JBFqnCBsd6RMkjVDRZzb"  # ElevenLabs voice id
+    tts_model: str = "eleven_flash_v2_5"
+    tts_rate: int = 24_000  # PCM rate asked of text-to-speech: 16000, 22050 or 24000
+    tts_timeout_s: float = 30.0
+    quiet_s: float = 1.5  # speak only once no string was crossed for this long
+    quiet_max_wait_s: float = 30.0  # give up speaking (text stays on screen) after this
+    history_s: float = 900.0  # how much play the app keeps for feedback
+    free_window_s: float = 60.0  # outside a song, feedback covers at most this much play
+    take_gap_s: float = 8.0  # a pause this long without strumming starts a new take
+    min_strokes: int = 4  # fewer strokes than this: nothing to say yet
+    stroke_gap_ms: float = 120.0  # string hits this close in one direction are one stroke
+    beat_subdivision: int = 2  # timing grid per beat (2 = eighth notes)
+    on_time_ms: float = 60.0  # a stroke this close to the grid is on time
+    change_late_ms: float = 150.0  # a chord reached later than this after it is due is late
+    change_early_ms: float = 250.0  # leaving a chord this long before the change is rushing
+    mute_resume_ms: float = 400.0  # strumming again this soon after a mute: likely unintended
+    thin_strings: int = 3  # a stroke sounding fewer strings than this only brushed them
+    show_s: float = 12.0  # how long the feedback stays on screen
+
+
+@dataclass(frozen=True)
 class Config:
     camera: CameraConfig = field(default_factory=CameraConfig)
     tracking: TrackerConfig = field(default_factory=TrackerConfig)
@@ -287,6 +321,7 @@ class Config:
     replay: ReplayConfig = field(default_factory=ReplayConfig)
     clip: ClipConfig = field(default_factory=ClipConfig)
     song: SongConfig = field(default_factory=SongConfig)
+    coach: CoachConfig = field(default_factory=CoachConfig)
 
     def with_overrides(self, overrides: dict[str, Any]) -> Config:
         """Return a copy with nested ``{"section": {"key": value}}`` overrides applied."""

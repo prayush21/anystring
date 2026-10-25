@@ -118,6 +118,7 @@ enforces this with an ownership map:
 | WP4 Contact gate | `capture/mic.py`, `play/gate.py`, `tests/gate/` |
 | WP5 Integration | `app.py`, `pipeline.py`, `ui/`, `replay/`, `tools/latency_probe.py`, `tests/integration/` (the only layer allowed to import across packages) |
 | WP7 Song mode | `song/` (sheets, voicings, player, library, voice), `tests/song/` |
+| WP8 Coach | `coach/` (take log, analysis, Claude phrasing, ElevenLabs speech), `tests/coach/` |
 
 `play/` and `capture/` are shared directories: WP2 and WP4 both live in `play/`, WP1
 and WP4 in `capture/`, and they still must not import each other. A new file there
@@ -179,6 +180,26 @@ acceptance on the MacBook, then the WP6 verification by a fresh agent.
 - Voice (`s`): a short clip goes to ElevenLabs speech-to-text (`$ELEVENLABS_API_KEY`)
   on a worker thread; titles match song files fuzzily. No network call is on the play
   path. Tests use made-up lyrics only.
+
+## Coach (WP8)
+
+- Feedback on a take, never on the play path. `replay/take.py` `TakeLogger` copies each
+  frame's `EngineSnapshot` (chord held, grip, mute, new string hits, the engine's
+  refractory-drop count) into a rolling `coach.log.TakeLog`; `log_from_session` builds the
+  same log from a recording by stepping it through a `Pipeline` (song starts are noted in
+  `session.json` under `songs`).
+- `coach/analyze.py` measures it: strokes (missed / grip dropped / thin, up vs down),
+  timing against the beat grid in song mode (dragging, rushing, drift), stroke-rate
+  steadiness outside a song, per chord-change lag, misses and early let-go
+  (e.g. G -> Am), chord accuracy, likely unintended palm mutes, racket lost. Findings
+  are ranked; `facts` is the compact JSON the LLM sees.
+- `coach/phrase.py` words it with Claude (`[coach] llm_model`, `$ANTHROPIC_API_KEY` or an
+  `ant auth` profile; server-side refusal fallback on); `template` is the no-network
+  fallback. `coach/speak.py` is ElevenLabs text-to-speech (`$ELEVENLABS_API_KEY`), PCM out.
+- Triggers: a song reaching its end (`[coach] after_song`), `k`, or saying "how was that?" /
+  "give me feedback" (`parse_command` kind `feedback`). It speaks only after
+  `quiet_s` without a string crossing. `uv run anystring coach DIR [--no-llm] [--speak]`
+  judges a recording.
 
 ## Integration (WP5)
 

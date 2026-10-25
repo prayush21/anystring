@@ -384,7 +384,10 @@ class Overlay:
             cv2.circle(img, (24, 74), 7, BGR["rec"], -1, cv2.LINE_AA)
             _text(img, "REC", (38, 80), 0.55, BGR["rec"])
         if s.message:
-            _text(img, s.message, (16, img.shape[0] - 44), 0.6)
+            # Long messages (coach feedback) wrap upward from the usual line.
+            lines = _wrap(s.message, 0.6, img.shape[1] - 32)
+            for i, line in enumerate(lines):
+                _text(img, line, (16, img.shape[0] - 44 - 24 * (len(lines) - 1 - i)), 0.6)
 
     def _grip_meter(self, img: np.ndarray, s: Status) -> None:
         """Debug: the live grip score against the close/open thresholds."""
@@ -451,6 +454,17 @@ def _guitar_body(n: int = 90) -> np.ndarray:
     half **= 1.0 / BODY_SMOOTH
     outline = np.vstack([np.c_[u, half], np.c_[u, -half][::-1]])
     return (0.5, 0.0) + (outline - (0.5, 0.0)) * BODY_SCALE
+
+
+def _wrap(text: str, scale: float, width: int) -> list[str]:
+    lines: list[str] = []
+    for word in text.split():
+        trial = f"{lines[-1]} {word}" if lines else word
+        if lines and cv2.getTextSize(trial, FONT, scale, 1)[0][0] <= width:
+            lines[-1] = trial
+        else:
+            lines.append(word)
+    return lines
 
 
 def _text(

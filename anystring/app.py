@@ -14,8 +14,12 @@ d debug view (with the live grip meter), h help. [ and ] lower / raise the grip'
 threshold, , and . the arm threshold, for trying thresholds while playing; they are
 shares of the calibrated pick-grip -> open-hand span, and a recording splits into a new
 part at each change so every part replays with its own thresholds.
-Song mode: s talk ("let's play take on me", "start", "stop"), SPACE start/stop the
-song, x leave the song.
+Song mode: s talk ("let's play take on me", "start", "stop", "how was that?"), SPACE
+start/stop the song, x leave the song.
+Coach: k (or saying "how was that?") gives feedback on the last take; it also comes on
+its own when a song ends. The take is measured from the play log (timing, chord
+changes, strokes, grip, mutes), phrased by Claude and spoken through ElevenLabs on a
+worker thread, only once strumming has stopped.
 Clips: F8 (or f, since a MacBook's F8 is a media key unless Fn is held) saves the last
 ``[clip] seconds`` of the window and the guitar's sound to the ``memories/`` folder; the card
 in the corner shows it saving, then saved. The save runs on a worker thread.
@@ -50,6 +54,10 @@ from anystring.audio.output import AudioOutput
 from anystring.audio.probe import ProbeTone
 from anystring.capture.camera import Camera, CameraError, Frame
 from anystring.capture.mic import MicStream
+from anystring.coach.analyze import TakeReport, analyze
+from anystring.coach.log import TakeLog
+from anystring.coach.phrase import CoachError, phrase, template
+from anystring.coach.speak import SpeakError, play, synthesize
 from anystring.config import (
     Calibration,
     Config,
@@ -64,6 +72,7 @@ from anystring.replay.clip import ClipBuffer
 from anystring.replay.demo import DemoError, DemoRecorder
 from anystring.replay.harness import render_session, replay
 from anystring.replay.record import Recorder, TeeDetector
+from anystring.replay.take import TakeLogger, log_from_session, song_info
 from anystring.song.library import find_song, songs_dir
 from anystring.song.player import SongPlayer
 from anystring.song.sheet import Song
@@ -81,6 +90,7 @@ WINDOW = "Anystring"
 HELP = (
     "q quit  r record  c calibrate  g grip gate  m mic gate  l re-lock  d debug  h help"
     "  [ ] grip off  , . grip arm  s talk  SPACE song start/stop  x leave song  F8 snap clip"
+    "  k feedback"
 )
 GRIP_STEP = 0.05  # [ ] , . move a grip threshold by this share of the closed -> open span
 LOCK_PROMPTS = (
@@ -119,6 +129,16 @@ class Devices:
     audio: AudioOutput | None = None
     mic: MicStream | None = None
     tee: TeeDetector | None = None
+
+
+@dataclass
+class SongRun:
+    """One play-through of a song, for feedback: from its start until done or stopped."""
+
+    player: SongPlayer
+    start: float  # capture time of the first count-in beat
+    end: float | None = None
+    finished: bool = False
 
 
 def gate_mode(cfg: Config) -> str:
@@ -174,6 +194,16 @@ class LiveApp:
         self._listening = threading.Event()
         # Push-to-talk: record a clip and return what was said. Tests replace it.
         self.hear: Callable[[], str] = self._hear
+        # Coach: the play log, the song play-through it may cover, and the steps of
+        # giving feedback (each replaceable in tests).
+        self.takes = TakeLogger(cfg.coach.history_s)
+        self._song_run: SongRun | None = None
+        self._coaching = threading.Event()
+        self.last_feedback: str | None = None
+        self.phrase_feedback: Callable[[TakeReport], str] = self._phrase
+        self.say: Callable[[str], None] = self._say
+        self.wait_quiet: Callable[[], bool] = self._wait_quiet
+        self.run_worker: Callable[[Callable[[], None]], None] = self._spawn
         if song is not None:
             self._load_song(song)
         if record_dir is not None:
@@ -208,6 +238,8 @@ class LiveApp:
                 self._finish_calibration()
         else:
             self._play(events)
+            self.takes.observe(snap)
+            self._follow_song(song_state, frame.t)
             if self.demo is not None:
                 self.demo.add_events(events)
             self.clips.add_events(events)
@@ -337,6 +369,8 @@ class LiveApp:
             self.command(lambda: self.player and self.player.stop())
         elif cmd.kind == "restart":
             self.command(self._restart_song)
+        elif cmd.kind == "feedback":
+            self.command(self.request_feedback)
         else:
             query = cmd.query or cmd.text
             match = find_song(query, self.song_dir, self.cfg.song.match_min_score)
@@ -344,6 +378,17 @@ class LiveApp:
                 self.command(lambda: self._set_message(f'heard "{text}": no song file matches'))
             else:
                 self.command(lambda: self._load_song(match.song))
+
+    def request_feedback(self) -> None:
+        """Feedback on the last take (vision thread, via ``command``). The take is cut
+        here; measuring, phrasing and speaking run on a worker thread."""
+        if self._coaching.is_set():
+            self._set_message("still working on the last feedback")
+            return
+        log = self._take_log()
+        self._coaching.set()
+        self._set_message("listening back to that take ...")
+        self.run_worker(lambda: self._coach_worker(log))
 
     def stop_recording(self) -> Path | None:
         rec, self.recorder = self.recorder, None
@@ -476,6 +521,8 @@ class LiveApp:
                     debug[0] = not debug[0]
                 if key == ord("s"):
                     self.listen()
+                if key == ord("k"):
+                    self.command(self.request_feedback)
                 if key in keys:
                     self.command(keys[key])
                 if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
@@ -497,11 +544,83 @@ class LiveApp:
         if self._song_start:
             self._song_start = False
             p.start(t)
+            self._song_run = SongRun(p, t)
+            if self.recorder is not None:
+                self._note_song(self.recorder, p)
         state = p.state(t)
         if state.chords == self._song_sent:
             return state, None
         self._song_sent = state.chords
         return state, state.chords
+
+    def _follow_song(self, state, t: float) -> None:
+        """Close the song play-through when it ends, is stopped or left; feedback when
+        it ran to the end."""
+        run = self._song_run
+        if run is None or run.end is not None:
+            return
+        p = self.player
+        if p is not run.player or not p.started:
+            run.end = t
+        elif state is not None and state.phase == "done":
+            run.end, run.finished = t, True
+            if self.cfg.coach.after_song:
+                self.request_feedback()
+
+    def _take_log(self) -> TakeLog:
+        """The song play-through if nothing was strummed after it, else the latest
+        stretch of free playing."""
+        c, run = self.cfg.coach, self._song_run
+        last = self.takes.last_hit_t
+        if run is not None and (run.end is None or last is None or last <= run.end + c.quiet_s):
+            return self.takes.log(run.start, run.end, song_info(run.player, run.finished))
+        start = self.takes.free_take_start(self._frame_t, c.free_window_s, c.take_gap_s)
+        return self.takes.log(start)
+
+    def _coach_worker(self, log: TakeLog) -> None:
+        c = self.cfg.coach
+        try:
+            text = self.phrase_feedback(analyze(log, c))
+            self.last_feedback = text
+            print(f"coach: {text}", flush=True)
+            self.command(lambda: self._set_message(text, c.show_s))
+            if c.speak and self.wait_quiet():
+                self.say(text)
+        except (SpeakError, OSError) as exc:
+            msg = str(exc)
+            self.command(lambda: self._set_message(msg))
+        finally:
+            self._coaching.clear()
+
+    def _phrase(self, report: TakeReport) -> str:
+        if self.cfg.coach.llm and report.enough:
+            try:
+                return phrase(report, self.cfg.coach)
+            except CoachError as exc:
+                print(f"coach: {exc}; using the plain summary", flush=True)
+        return template(report)
+
+    def _say(self, text: str) -> None:
+        c = self.cfg.coach
+        play(synthesize(text, c), c.tts_rate, self.cfg.audio.device)
+
+    def _wait_quiet(self) -> bool:
+        """Block until no string was crossed for ``quiet_s`` of capture time; False if
+        that takes longer than ``quiet_max_wait_s`` or the app stops."""
+        c = self.cfg.coach
+        deadline = self.clock() + c.quiet_max_wait_s
+        while not self.stop_event.is_set():
+            last = self.takes.last_hit_t
+            if last is None or self._frame_t - last >= c.quiet_s:
+                return True
+            if self.clock() >= deadline:
+                return False
+            self.stop_event.wait(0.1)
+        return False
+
+    @staticmethod
+    def _spawn(fn: Callable[[], None]) -> None:
+        threading.Thread(target=fn, name="coach", daemon=True).start()
 
     def _song_done(self) -> bool:
         p = self.player
@@ -579,8 +698,18 @@ class LiveApp:
             path, self.cfg, self.calibration, video=self.cfg.replay.video, mic=self.dev.tee
         )
         self.recorder.session.meta["pose_source"] = "flow"
+        if self.player is not None and self.player.started:
+            self._note_song(self.recorder, self.player)
         self._song_sent = None  # the recording's first frame carries the song's chords
         self._set_message(f"recording to {path}")
+
+    @staticmethod
+    def _note_song(rec: Recorder, p: SongPlayer) -> None:
+        """Note a song start in the recording, so ``anystring coach`` can judge it."""
+        path = str(p.song.path) if p.song.path is not None else None
+        rec.session.meta.setdefault("songs", []).append(
+            {"title": p.song.title, "path": path, "start_t": p.start_time}
+        )
 
     def _finish_calibration(self) -> None:
         assert self.flow is not None and self.flow.result is not None
@@ -603,7 +732,9 @@ class LiveApp:
         self.pipeline = Pipeline(cfg, calibration)
         self._song_sent = None  # a new pipeline starts on the configured chords
         if self.player is not None:
-            self.player = self._replan(self.player)
+            old, self.player = self.player, self._replan(self.player)
+            if self._song_run is not None and self._song_run.player is old:
+                self._song_run.player = self.player
         rec = self.recorder
         if rec is None:
             return
@@ -663,8 +794,8 @@ class LiveApp:
             save.error,
         )
 
-    def _set_message(self, text: str) -> None:
-        self._message, self._message_until = text, self.clock() + MESSAGE_S
+    def _set_message(self, text: str, seconds: float = MESSAGE_S) -> None:
+        self._message, self._message_until = text, self.clock() + seconds
 
 
 # -- CLI ------------------------------------------------------------------------------
@@ -811,6 +942,35 @@ def _cmd_song(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_coach(args: argparse.Namespace) -> int:
+    """Feedback on a recorded session: the measurements, then the words (and voice)."""
+    import json
+
+    from anystring.coach.analyze import facts
+    from anystring.replay.record import load_session
+
+    cfg = load_session(args.session).config
+    if args.config:
+        cfg = replace(cfg, coach=load_config(args.config).coach)
+    log = log_from_session(args.session)
+    report = analyze(log, cfg.coach)
+    print(json.dumps(facts(report, top=8), indent=2))
+    text = template(report)
+    if not args.no_llm and report.enough:
+        try:
+            text = phrase(report, cfg.coach)
+        except CoachError as exc:
+            print(f"{exc}; using the plain summary", file=sys.stderr)
+    print(f"\ncoach: {text}")
+    if args.speak:
+        try:
+            play(synthesize(text, cfg.coach), cfg.coach.tts_rate, cfg.audio.device)
+        except SpeakError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+    return 0
+
+
 def _cmd_fetch_model(args: argparse.Namespace) -> int:
     cfg = load_config(args.config) if args.config else load_config()
     target = model_target(cfg)
@@ -853,6 +1013,12 @@ def build_parser() -> argparse.ArgumentParser:
     sg.add_argument("--speed", type=float, help="fraction of the sheet's tempo")
     sg.add_argument("--no-lyrics", action="store_true", help="chords and timing only")
 
+    co = sub.add_parser("coach", help="feedback on a recorded session")
+    co.add_argument("session", help="session directory")
+    co.add_argument("--config", help="take the [coach] settings from this TOML")
+    co.add_argument("--no-llm", action="store_true", help="plain summary, no Claude call")
+    co.add_argument("--speak", action="store_true", help="also say it (ElevenLabs)")
+
     fm = sub.add_parser("fetch-model", help="download the MediaPipe hand model")
     fm.add_argument("--config")
     fm.add_argument("--force", action="store_true")
@@ -890,6 +1056,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "calibrate": _cmd_play,
         "replay": _cmd_replay,
         "song": _cmd_song,
+        "coach": _cmd_coach,
         "fetch-model": _cmd_fetch_model,
     }[command]
     try:

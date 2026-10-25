@@ -66,6 +66,7 @@ class StrumDetector:
         self._hist: deque[tuple[float, np.ndarray]] = deque(maxlen=_HISTORY)  # (t, v per tip)
         self._frames_back = 0
         self._tips_uv: np.ndarray | None = None
+        self.refractory_blocked = 0  # crossings dropped by the refractory window, ever
 
     @property
     def layout(self) -> StringLayout:
@@ -155,6 +156,7 @@ class StrumDetector:
                 continue
             string = self._layout.string_of_slot(s, low_e_neg_v)
             if t - self._last_hit_t[string] < self._refractory:
+                self.refractory_blocked += 1
                 continue
             self._last_hit_t[string] = t
             down = (direction > 0) == low_e_neg_v
