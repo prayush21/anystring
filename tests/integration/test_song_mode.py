@@ -161,7 +161,7 @@ def test_overlay_draws_every_song_phase(song_cfg, song_dir):
     view = app.process(items.pop(0))
     ready = overlay.draw(view)
     green = np.all(np.abs(ready.astype(int) - BGR["next"]) <= 10, axis=-1)
-    assert green.sum() > 500  # the ready card's border and the next-section glow
+    assert green.sum() > 500  # the start cue and the next-section glow
 
     p: SongPlayer = view.song
     p.start(view.t)
@@ -173,6 +173,123 @@ def test_overlay_draws_every_song_phase(song_cfg, song_dir):
             type(view)(view.image, t, view.pose, view.snapshot, view.status, song=p, song_state=st)
         )
         assert out.shape == view.image.shape
+
+
+@pytest.mark.parametrize("mirror", [False, True])
+def test_song_hud_leaves_lock_prompts_clear(song_cfg, song_dir, mirror):
+    from dataclasses import replace
+
+    app, devices, _ = _app(song_cfg, song_dir)
+    app.handle_heard("play paper boats")
+    view = app.process(devices.camera._items.pop(0))
+    overlay = Overlay(song_cfg.with_overrides({"ui": {"mirror": mirror}}))
+    prompt = "Click the TOP of the racket head"
+    plain = overlay.draw(replace(view, song=None), prompt=prompt)
+    with_song = overlay.draw(view, prompt=prompt)
+    assert np.array_equal(with_song, plain)
+
+
+def test_wrapped_lyrics_keep_every_word_and_source_column():
+    import cv2
+
+    from racketguitar.ui.song_hud import FONT, wrap_lyric
+
+    text = "Folding paper boats with extraordinarilylongunbrokenwords down the stream"
+    rows = wrap_lyric(text, 150, 0.72)
+    assert "".join(s for _, s in rows).replace(" ", "") == text.replace(" ", "")
+    for start, row in rows:
+        assert text[start : start + len(row)] == row
+        assert cv2.getTextSize(row, FONT, 0.72, 1)[0][0] <= 150
+
+
+def test_song_hud_distinguishes_target_from_held_chord(song_cfg, song_dir, monkeypatch):
+    from racketguitar.ui import song_hud
+
+    player = SongPlayer(find_song("paper boats", song_dir).song, song_cfg)
+    player.start(0)
+    st = player.state(player.count_in * player.seconds_per_beat + 0.01)
+    labels = []
+    monkeypatch.setattr(song_hud, "_text", lambda img, text, *a, **kw: labels.append(text))
+    img = np.zeros((720, 1280, 3), np.uint8)
+    song_hud.draw_song_hud(img, player, st, "G", True)
+    assert "Am" in labels and "D" in labels
+    assert "You: G" in labels
+    assert "Grip 1" in labels and "REC" in labels
+
+
+@pytest.mark.parametrize("size", [(360, 640), (720, 1280), (1080, 1920)])
+def test_song_hud_preserves_camera_dimensions_and_play_area(song_cfg, song_dir, size):
+    from racketguitar.ui.song_hud import HUD_HEIGHT, HUD_WIDTH, draw_song_hud
+
+    player = SongPlayer(find_song("paper boats", song_dir).song, song_cfg)
+    player.start(0)
+    original = np.full((*size, 3), 120, np.uint8)
+    for beat in (-3.5, 0.1, player.timeline.total_beats + 1):
+        img = original.copy()
+        state = player.state((beat + player.count_in) * player.seconds_per_beat)
+        draw_song_hud(img, player, state, "G", True)
+        assert img.shape == original.shape
+        boundary = round(size[1] * HUD_HEIGHT / HUD_WIDTH)
+        assert np.array_equal(img[boundary:], original[boundary:])
+        assert not np.array_equal(img[:boundary], original[:boundary])
+
+
+def test_lyrics_rise_and_gain_focus_at_their_timed_boundary(song_cfg, song_dir):
+    from racketguitar.ui.song_hud import LYRIC_FOCUS_Y, _lyric_positions
+
+    player = SongPlayer(find_song("paper boats", song_dir).song, song_cfg)
+    boundary = player.timeline.lines[1].beat
+    stages = []
+    for seconds in (0, 0.1, 0.2, 0.4):
+        positions = _lyric_positions(player, boundary + seconds / player.seconds_per_beat)
+        stages.append(next((y, focus) for b, y, focus in positions if b.beat == boundary))
+    assert stages[0][0] > LYRIC_FOCUS_Y and stages[0][1] == 0
+    assert all(a[0] > b[0] and a[1] < b[1] for a, b in zip(stages, stages[1:], strict=False))
+    assert stages[-1] == pytest.approx((LYRIC_FOCUS_Y, 1))
+    # The boundary itself must not teleport the upcoming line to its new position.
+    before = _lyric_positions(player, boundary - 1e-7)
+    y_before = next(y for b, y, _ in before if b.beat == boundary)
+    assert y_before == pytest.approx(stages[0][0])
+
+
+def test_lyric_scroll_is_repeatable_after_seek_and_does_not_cover_controls(song_cfg, song_dir):
+    from racketguitar.ui.song_hud import (
+        LYRIC_HEIGHT,
+        LYRIC_WIDTH,
+        LYRIC_X,
+        LYRIC_Y,
+        _draw_scrolling_lyrics,
+    )
+
+    player = SongPlayer(find_song("paper boats", song_dir).song, song_cfg)
+    player.start(0)
+    background = np.full((224, 1280, 3), 70, np.uint8)
+
+    def render(beat):
+        img = background.copy()
+        state = player.state((beat + player.count_in) * player.seconds_per_beat)
+        _draw_scrolling_lyrics(img, player, state)
+        return img
+
+    beat = player.timeline.lines[1].beat + 0.2 / player.seconds_per_beat
+    first = render(beat)
+    render(beat + 8)
+    assert np.array_equal(first, render(beat))
+    outside = np.ones(first.shape[:2], dtype=bool)
+    outside[LYRIC_Y : LYRIC_Y + LYRIC_HEIGHT, LYRIC_X : LYRIC_X + LYRIC_WIDTH] = False
+    assert np.array_equal(first[outside], background[outside])
+
+
+def test_long_lyrics_scroll_all_words_in_timed_pages():
+    from racketguitar.song.player import TimedLine
+    from racketguitar.ui.song_hud import _lyric_blocks
+
+    words = " ".join(f"word{i}" for i in range(90))
+    blocks = _lyric_blocks((TimedLine("Verse", words, 0, 16, ()),))
+    assert len(blocks) > 1
+    assert " ".join(row for block in blocks for row in block.rows) == words
+    assert blocks[0].beat == 0
+    assert blocks[-1].beat + blocks[-1].beats == pytest.approx(16)
 
 
 def test_song_command_prints_the_plan(song_dir, capsys):

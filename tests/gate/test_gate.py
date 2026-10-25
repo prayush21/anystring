@@ -63,8 +63,9 @@ def settle(clf: GripClassifier, h, n: int = 5) -> str:
 
 def test_template_scores_are_ordered():
     pick, fist, open_ = (grip_score(hand_template(s)) for s in ("pick", "fist", "open"))
-    assert pick < GateConfig.grip_closed_default < GateConfig.grip_open_default <= open_ + 0.01
-    assert fist < GateConfig.grip_closed_default
+    # The defaults are the template pick grip and spread hand, rounded.
+    assert pick == pytest.approx(GateConfig.grip_closed_default, abs=0.01)
+    assert open_ == pytest.approx(GateConfig.grip_open_default, abs=0.02)
     lo, hi = grip_thresholds()
     assert pick < fist < lo < hi < open_
 
@@ -98,26 +99,40 @@ def test_score_reads_raw_landmarks():
     assert grip_score(mixed) == pytest.approx(grip_score(h.raw))
 
 
-@pytest.mark.parametrize(("good", "bad"), [("pick", "open"), ("open", "pick"), ("fist", "open")])
-def test_single_frame_outliers_never_flip(good, bad):
+def test_single_closed_frames_never_arm():
     clf = GripClassifier(hold_frames=2)
-    settle(clf, hand(good))
+    settle(clf, hand("open"))
     for i in range(30):
-        state = clf.update(hand(bad if i % 2 == 0 else good))  # every other frame wrong
-        assert state == EXPECTED[good]
+        state = clf.update(hand("pick" if i % 2 == 0 else "open"))  # every other frame wrong
+        assert state == "open"
 
 
-def test_hold_frames_before_flip():
+@pytest.mark.parametrize("shape", ["pick", "fist"])
+def test_one_open_frame_releases_and_two_closed_frames_rearm(shape):
+    """Disarming is immediate (a hand opening for the return stroke must not play it);
+    re-arming still takes the hold."""
     clf = GripClassifier(hold_frames=2)
-    settle(clf, hand("pick"))
-    assert clf.update(hand("open")) == "closed"
-    assert clf.update(hand("open")) == "open"  # flips on the 2nd consecutive frame
+    settle(clf, hand(shape))
+    assert clf.update(hand("open")) == "open"
+    assert clf.update(hand(shape)) == "open"
+    assert clf.update(hand(shape)) == "closed"
+
+
+def test_hold_and_release_frames_before_flip():
+    clf = GripClassifier(hold_frames=2)
+    settle(clf, hand("open"))
+    assert clf.update(hand("pick")) == "open"
+    assert clf.update(hand("pick")) == "closed"  # arms on the 2nd consecutive frame
     clf3 = GripClassifier(hold_frames=3)
-    settle(clf3, hand("pick"))
-    assert [clf3.update(hand("open")) for _ in range(3)] == ["closed", "closed", "open"]
-    clf1 = GripClassifier(hold_frames=1)
-    settle(clf1, hand("pick"))
-    assert clf1.update(hand("open")) == "open"
+    settle(clf3, hand("open"))
+    assert [clf3.update(hand("pick")) for _ in range(3)] == ["open", "open", "closed"]
+    slow = GripClassifier(hold_frames=2, release_frames=2)  # the old symmetric hold
+    settle(slow, hand("pick"))
+    assert [slow.update(hand("open")) for _ in range(2)] == ["closed", "open"]
+    slow = GripClassifier(hold_frames=2, release_frames=2)
+    settle(slow, hand("pick"))
+    for i in range(30):
+        assert slow.update(hand("open" if i % 2 == 0 else "pick")) == "closed"
 
 
 def test_hysteresis_dead_band_keeps_current_state():
@@ -154,18 +169,19 @@ def test_calibration_shifts_thresholds():
     lo, hi = grip_thresholds(
         Calibration(grip_closed_score=0.2, grip_open_score=0.4, grip_version=GRIP_SCORE_VERSION)
     )
-    h = GateConfig().grip_hysteresis
-    assert lo == pytest.approx(0.2 + (0.5 - h) * 0.2) and hi == pytest.approx(0.2 + (0.5 + h) * 0.2)
+    g = GateConfig()
+    assert lo == pytest.approx(0.2 + g.grip_arm_below * 0.2)
+    assert hi == pytest.approx(0.2 + g.grip_release_above * 0.2)
     # A closed score not below the open score is ignored.
     bad = Calibration(grip_closed_score=0.5, grip_open_score=0.3, grip_version=GRIP_SCORE_VERSION)
     assert grip_thresholds(bad) == grip_thresholds()
 
 
 def test_calibrated_user_with_a_half_open_hand():
-    """A user whose relaxed 'open' hand is only half open: misread as closed with the
-    defaults, read correctly once calibrated."""
+    """A user whose relaxed 'open' hand barely lifts the thumb off the index: misread as
+    closed with the defaults, read correctly once calibrated."""
     rng = np.random.default_rng(3)
-    users_open = blend_with_score(0.42)
+    users_open = blend_with_score(0.20)
     closed_frames = [hand("pick", jitter=1.0, rng=rng) for _ in range(30)]
     open_frames = [hand_obs(0.0, place_hand(users_open, (640, 360)), jitter_px=1.0, rng=rng)]
     open_frames *= 30
@@ -173,7 +189,7 @@ def test_calibrated_user_with_a_half_open_hand():
     cal = calibrate_grip(closed_frames, open_frames, base=Calibration(detect_to_audio_ms=25.0))
     assert cal.detect_to_audio_ms == 25.0
     assert cal.grip_closed_score == pytest.approx(grip_score(hand_template("pick")), abs=0.03)
-    assert cal.grip_open_score == pytest.approx(0.42, abs=0.03)
+    assert cal.grip_open_score == pytest.approx(0.20, abs=0.03)
     relaxed = place_hand(users_open, (640, 360))
     assert settle(GripClassifier(), relaxed) == "closed"
     assert settle(GripClassifier(calibration=cal), relaxed) == "open"
@@ -325,9 +341,16 @@ def test_open_hand_disarms_mid_play_and_lost_hand_disarms():
     drive(g, "pick", 1.0)
     assert g.allows(1.0)
     g.observe_hand(1.017, hand("open"))
-    assert g.allows(1.017)  # one open frame: still armed
-    g.observe_hand(1.033, hand("open"))
-    assert not g.allows(1.033)
+    assert not g.allows(1.017)  # the first open frame disarms
+    g.observe_hand(1.033, hand("pick"))
+    assert g.allows(1.033)  # and the default 1-frame hold re-arms on the first pick frame
+    held = make_gate(Config().with_overrides({"gate": {"grip_hold_frames": 2}}))
+    drive(held, "pick", 1.0)
+    held.observe_hand(1.017, hand("open"))
+    held.observe_hand(1.033, hand("pick"))
+    assert not held.allows(1.033)  # a 2-frame hold waits one more frame
+    held.observe_hand(1.050, hand("pick"))
+    assert held.allows(1.050)
     drive(g, "pick", 1.1)
     drive(g, None, 1.2, frames=2)
     assert g.grip == "unknown" and not g.allows(1.2)

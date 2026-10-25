@@ -44,6 +44,7 @@ OWNERS = {
     "racketguitar/replay/": "WP5",
     "tools/latency_probe.py": "WP5",
     "tools/acceptance.py": "WP5",
+    "tools/grip_sweep.py": "WP5",
     "racketguitar/song/__init__.py": "WP0",
     "racketguitar/song/": "WP7",
     "tests/song/": "WP7",

@@ -167,7 +167,12 @@ class MuteConfig:
 class GateConfig:
     pick_grip: bool = True  # default gate: closed pick grip = armed, open hand = disarmed
     mic: bool = False  # optional second gate; both on = a crossing needs both
-    grip_hold_frames: int = 2  # frames a new grip state must persist before it flips
+    # Frames a new grip state must persist before it flips; release: before a closed grip
+    # disarms. One each, the strict setting chosen with tools/grip_sweep: with the narrow
+    # thresholds below, a longer hold only let relaxed returns play (a stray frame can
+    # now arm the gate; raise grip_hold_frames to 2 if that shows up).
+    grip_hold_frames: int = 1
+    grip_release_frames: int = 1
     onset_lookback_ms: float = 80.0  # a crossing plays if an onset came this recently
     onset_after_ms: float = 10.0  # ... or at most this long after it (timing error)
     onset_hold_ms: float = 150.0  # an onset keeps the gate open this long during a sweep
@@ -175,12 +180,17 @@ class GateConfig:
     # Note detection -> sound leaving the speaker; anchors the bleed window until
     # Calibration.detect_to_audio_ms is measured.
     output_latency_ms: float = 30.0
-    grip_closed_default: float = 0.25  # grip scores used until the user calibrates
-    grip_open_default: float = 0.80
-    # Arm below 25 %, turn off above 75 % of the way from the calibrated pick grip to the
-    # spread hand; in between the state holds. A wide dead zone makes stopping a
-    # deliberate spread (measured on a real take: half the chatter of a 40-60 band).
-    grip_hysteresis: float = 0.25
+    # Thumb gaps (palm sizes) used until the user calibrates: the template pick grip and
+    # spread hand.
+    grip_closed_default: float = 0.06
+    grip_open_default: float = 0.70
+    # Arm below 28 %, disarm above 33 % of the way from the calibrated pick grip to the
+    # spread hand; in between the state holds. With the defaults that is a thumb gap of
+    # 0.24 / 0.27 palm sizes: the strict setting from tools/grip_sweep on a pick-grip take
+    # and a relaxed-return take (2 of 89 relaxed returns played, 25 of 287 strum
+    # crossings missed). A thumb even partly off the index reads as not holding a pick.
+    grip_arm_below: float = 0.28
+    grip_release_above: float = 0.33
 
 
 @dataclass(frozen=True)

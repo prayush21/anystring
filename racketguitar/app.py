@@ -10,8 +10,12 @@ followed by optical flow; there are no markers.
 
 Keys in the play window: q / Esc quit, r start/stop recording, c calibrate,
 g toggle the pick-grip gate, m toggle the mic gate (needs --mic), l re-lock,
-d debug view, h help. Song mode: s talk ("let's play take on me", "start", "stop"),
-SPACE start/stop the song, x leave the song.
+d debug view (with the live grip meter), h help. [ and ] lower / raise the grip's off
+threshold, , and . the arm threshold, for trying thresholds while playing; they are
+shares of the calibrated pick-grip -> open-hand span, and a recording splits into a new
+part at each change so every part replays with its own thresholds.
+Song mode: s talk ("let's play take on me", "start", "stop"), SPACE start/stop the
+song, x leave the song.
 
 Song mode reads chord sheets from ``~/.racketguitar/songs``. A ``SongPlayer`` decides
 which chords label the handle sections over the song; each relabel goes through
@@ -70,8 +74,9 @@ __all__ = ["Devices", "LiveApp", "main", "gate_mode", "model_target"]
 WINDOW = "Racket Guitar"
 HELP = (
     "q quit  r record  c calibrate  g grip gate  m mic gate  l re-lock  d debug  h help"
-    "  s talk  SPACE song start/stop  x leave song"
+    "  [ ] grip off  , . grip arm  s talk  SPACE song start/stop  x leave song"
 )
+GRIP_STEP = 0.05  # [ ] , . move a grip threshold by this share of the closed -> open span
 LOCK_PROMPTS = (
     "Click the TOP of the racket head",
     "Click the THROAT, where the head meets the shaft",
@@ -257,6 +262,19 @@ class LiveApp:
         self._rebuild(cfg, self.calibration)
         self._set_message(f"gate: {gate_mode(cfg)}")
 
+    def nudge_grip(self, which: str, step: float) -> None:
+        """Move the grip's arm (``"arm"``) or off (``"off"``) threshold by ``step``, as a
+        share of the calibrated closed -> open span. Arming always stays below off."""
+        g = self.cfg.gate
+        arm, off = g.grip_arm_below, g.grip_release_above
+        if which == "arm":
+            arm = min(round(arm + step, 2), round(off - GRIP_STEP, 2))
+        else:
+            off = max(round(off + step, 2), round(arm + GRIP_STEP, 2))
+        cfg = self.cfg.with_overrides({"gate": {"grip_arm_below": arm, "grip_release_above": off}})
+        self._rebuild(cfg, self.calibration)
+        self._set_message(f"grip: arm below {arm:.0%}, off above {off:.0%} (d shows the meter)")
+
     def toggle_song(self) -> None:
         """SPACE: start the loaded song (or play it again), or stop it."""
         p = self.player
@@ -387,6 +405,10 @@ class LiveApp:
             ord("g"): lambda: self.toggle_gate("grip"),
             ord("m"): lambda: self.toggle_gate("mic"),
             ord("h"): lambda: self._set_message(HELP),
+            ord("["): lambda: self.nudge_grip("off", -GRIP_STEP),
+            ord("]"): lambda: self.nudge_grip("off", GRIP_STEP),
+            ord(","): lambda: self.nudge_grip("arm", -GRIP_STEP),
+            ord("."): lambda: self.nudge_grip("arm", GRIP_STEP),
             ord(" "): self.toggle_song,
             ord("x"): self.leave_song,
         }
@@ -486,7 +508,7 @@ class LiveApp:
         if self._pending_lock is not None:
             tip, throat, grip, butt = self._pending_lock
             self._pending_lock = None
-            pose = tracker.lock(frame.image, tip, throat, frame.t, exclude)
+            pose = tracker.lock(frame.image, tip, throat, frame.t, exclude, butt=butt)
             if pose.visible:
                 # The grip and butt clicks place the chord sections on the grip only.
                 near, far = (
@@ -562,6 +584,9 @@ class LiveApp:
     def _status(self, now: float) -> Status:
         audio, mic = self.dev.audio, self.dev.mic
         msg = self._message if now < self._message_until else None
+        g, clf = self.cfg.gate, self.pipeline.gate.classifier
+        lo, hi = clf.close_below, clf.open_above
+        span = (hi - lo) / max(g.grip_release_above - g.grip_arm_below, 1e-9)
         return Status(
             fps=float(getattr(self.dev.camera, "measured_fps", 0.0)),
             vision_ms=self._vision_ms,
@@ -572,10 +597,8 @@ class LiveApp:
             recording=self.recorder is not None,
             message=msg,
             grip_score=self.pipeline.gate.grip_score,
-            grip_band=(
-                self.pipeline.gate.classifier.close_below,
-                self.pipeline.gate.classifier.open_above,
-            ),
+            grip_band=(lo, hi),
+            grip_span=(lo - g.grip_arm_below * span, lo + (1 - g.grip_arm_below) * span),
         )
 
     def _set_message(self, text: str) -> None:

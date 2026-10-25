@@ -15,6 +15,7 @@ uv run ruff check . && uv run ruff format .
 uv run racketguitar fetch-model   # once: MediaPipe hand model into models/
 uv run racketguitar          # play (calibrates on first run); `calibrate`, `replay DIR`
 uv run python -m tools.latency_probe analyze take.wav
+uv run python -m tools.grip_sweep --closed DIR --relaxed DIR   # rank grip thresholds
 ```
 
 ## Architecture
@@ -39,19 +40,31 @@ The main thread only draws the overlay (`ui/`), because macOS needs GUI work the
 removed; the PID's marker sections are superseded). The player clicks four points in
 the window: the top of the head (tip), the throat (head meets shaft), where the grip
 starts, and the butt. `FlowTracker` then follows corner features on a ring around the
-head's rim with pyramidal Lucas-Kanade (forward-backward checked) and one RANSAC
-similarity transform per frame, moving the tip and throat that define the
-`RacketPose`. The grip and butt clicks set `chords.handle_u_near/far`, so the four
-chord sections cover the grip only. Known limits: fast moves can drift (re-lock with
-`l`), and it cannot tell the racket left the frame (the static background keeps
-"tracking"). Its one setting is `[tracking] hold_ms`.
+head's rim (its width fitted to the rim's edge at lock) and on a narrow strip along the
+shaft and handle, with pyramidal Lucas-Kanade (forward-backward checked), dropping any
+inside a hand. Each feature keeps its lock-frame anchor, and one RANSAC similarity
+transform from the anchors to the features' current positions is fitted per frame and
+applied to the clicked tip and throat to give the `RacketPose`. Fitting against fixed
+anchors rather than chaining frame-to-frame fits is what stops slow rotation drift (a
+round badminton rim barely pins rotation; the handle strip helps). New features are
+only added while the last fit kept at least half of its features, so a fast swing
+ends in "racket lost" rather than locking onto the background. The grip and butt
+clicks set `chords.handle_u_near/far`, so the four chord sections cover the grip only.
+Known limits: a fast swing can lose it (re-lock with `l`), and it cannot tell the
+racket left the frame slowly (the static background keeps "tracking"). Its one
+setting is `[tracking] hold_ms`.
 No network or AI call ever sits between a strum and its sound.
 
 Play rules (decided, do not reopen without the lead):
 
-- **Strum gate** defaults to the **pick grip**: closed pick grip (thumb pad on the side
-  of a curled index, other fingers curled) = armed, open hand = disarmed. Per-user
-  calibration, hysteresis, 2-frame hold. The **mic gate** is optional and off by
+- **Strum gate** defaults to the **pick grip**: thumb pad on the side of the index =
+  armed, thumb off it = disarmed. The grip score is the thumb gap alone (thumb tip to
+  the index, in palm sizes; `GRIP_SCORE_VERSION` 3), which told pick-grip strums from
+  relaxed returns best on recorded takes. Per-user calibration and a narrow hysteresis:
+  arm below 28 %, disarm above 33 % of the closed-to-open span, 1 frame each (the
+  strict setting from `tools/grip_sweep.py`; `grip_arm_below`, `grip_release_above`,
+  `grip_hold_frames`, `grip_release_frames`; `[ ] , .` move them live). The
+  **mic gate** is optional and off by
   default; with both on, a crossing needs a pick grip *and* an onset in the last 80 ms.
 - **Chords** come only from which of **4 handle sections** the fretting hand grips:
   C, G, Am, F from head to butt. There is no finger chord-shape recognition. The

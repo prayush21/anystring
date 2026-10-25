@@ -12,6 +12,7 @@ from racketguitar.app import Devices, LiveApp, build_parser, gate_mode, main
 from racketguitar.capture.camera import Frame
 from racketguitar.config import Calibration, Config, load_calibration, load_config, save_config
 from racketguitar.replay.harness import replay
+from racketguitar.replay.record import load_session
 from racketguitar.vision.flow import FlowTracker
 from tests.fakes import hand_obs, make_pose, place_hand, render_racket, uv_to_px
 from tests.fakes.hands import INDEX_TIP
@@ -201,6 +202,39 @@ def test_commands_apply_on_the_next_frame(tmp_path, cfg):
     path = app.stop_recording()
     assert path is not None and (path / "session.json").exists()
     assert replay(path).matches
+
+
+def test_grip_threshold_keys_retune_the_gate_and_split_the_recording(tmp_path, cfg):
+    # Exercise both adjustments from an explicit band, independent of tuned defaults.
+    cfg = cfg.with_overrides(
+        {
+            "replay": {"record_dir": str(tmp_path / "rec"), "video": False},
+            "gate": {"grip_arm_below": 0.25, "grip_release_above": 0.50},
+        }
+    )
+    devices, _ = song_devices(cfg)
+    app = LiveApp(cfg, Calibration(), devices)
+    frames_ = devices.camera._items
+    app.command(app.toggle_recording)
+    app.process(frames_.pop(0))
+    app.command(lambda: app.nudge_grip("off", -0.05))
+    app.command(lambda: app.nudge_grip("arm", -0.05))
+    view = app.process(frames_.pop(0))
+    g = app.cfg.gate
+    assert (g.grip_arm_below, g.grip_release_above) == (0.20, 0.45)
+    assert "arm below 20%, off above 45%" in (view.status.message or "")
+    lo, hi = view.status.grip_band
+    c, o = view.status.grip_span
+    assert (lo - c) / (o - c) == pytest.approx(0.20) and (hi - c) / (o - c) == pytest.approx(0.45)
+    for _ in range(10):  # off never drops to or below arm
+        app.nudge_grip("off", -0.05)
+    assert app.cfg.gate.grip_release_above == pytest.approx(app.cfg.gate.grip_arm_below + 0.05)
+    # Each change after a recorded frame starts a new part, saved with its thresholds.
+    last = app.stop_recording()
+    assert last is not None and last.name.endswith("-part3")
+    part2 = last.parent / last.name.replace("-part3", "-part2")
+    assert load_session(part2).config.gate.grip_release_above == pytest.approx(0.45)
+    assert replay(part2).matches
 
 
 def test_gate_mode_names():
