@@ -35,7 +35,7 @@ class DemoError(RuntimeError):
 def ffmpeg_path() -> str:
     path = shutil.which("ffmpeg")
     if path is None:
-        raise DemoError("--demo needs ffmpeg on the PATH (macOS: brew install ffmpeg)")
+        raise DemoError("saving video needs ffmpeg on the PATH (macOS: brew install ffmpeg)")
     return path
 
 

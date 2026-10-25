@@ -17,6 +17,7 @@ from anystring.config import Config
 from anystring.play.engine import EngineSnapshot
 from anystring.song.player import SongPlayer, SongState
 from anystring.types import RacketPose
+from anystring.ui.clip_hud import ClipStatus
 from anystring.ui.song_hud import draw_song_hud
 
 __all__ = ["Status", "CalibrationView", "View", "Overlay", "BGR"]
@@ -86,6 +87,9 @@ class Status:
     grip_band: tuple[float, float] | None = None  # (close_below, open_above)
     # (closed, open) scores the thresholds are shares of: the calibration or defaults.
     grip_span: tuple[float, float] | None = None
+    # The latest F8 clip save. Not drawn by ``Overlay.draw``: ``draw_clip_hud`` adds it to
+    # the display image afterwards, so clips and demos stay free of it.
+    clip: ClipStatus | None = None
 
 
 @dataclass(frozen=True)
