@@ -37,6 +37,7 @@ BGR = {
     "rec": (40, 40, 230),
     "next": (90, 230, 120),  # song mode: the section to grip next
     "panel": (35, 30, 30),
+    "ivory": (215, 235, 245),  # rosette inlay
 }
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 ONSET_TICK_S = 0.3
@@ -46,6 +47,22 @@ WOBBLE_POINTS = 24
 WOBBLE_AMP = 0.035  # peak sideways swing at full velocity, head lengths
 WOBBLE_HZ = (7.0, 8.0, 9.0, 10.5, 12.0, 14.0)  # drawn vibration rate, low E -> high E
 STRING_WIDTH = (4, 4, 3, 3, 2, 2)  # low E -> high E
+# An acoustic guitar's soundhole on the head: a dark disc (so the strings read against
+# a bright string bed) inside thin rosette rings, all circles in head lengths around
+# the head's centre. Each strum sends one ring out from the hole.
+SOUNDHOLE_R = 0.22
+SOUNDHOLE_ALPHA = 0.5
+ROSETTE = (  # (radius, colour, width), drawn in order
+    (0.222, "ivory", 1),
+    (0.245, "ivory", 1),
+    (0.265, "shadow", 4),
+    (0.265, "ivory", 1),
+    (0.287, "ivory", 1),
+    (0.305, "shadow", 2),
+    (0.320, "ivory", 1),
+)
+ROSETTE_ALPHA = 0.8
+PULSE_ALPHA = 0.9
 
 
 @dataclass(frozen=True)
@@ -117,6 +134,7 @@ class Overlay:
         next_slot = st.next_slot if st is not None and st.phase != "done" else None
         if snap.frame is not None:
             self._racket(img, snap)
+            self._rosette(img, snap, view.t)
             self._handle(img, snap, next_slot)
             self._strings(img, snap, view.t)
         self._fingertips(img, snap)
@@ -183,6 +201,37 @@ class Overlay:
         shaft = frame.to_px(np.array([[0.0, 0.0], [snap.handle.u_at(1.0), 0.0]]))
         cv2.line(img, *map(tuple, self.px(shaft)), BGR["racket"], 2, cv2.LINE_AA)
 
+    def _rosette(self, img: np.ndarray, snap: EngineSnapshot, t: float) -> None:
+        frame = snap.frame
+        assert frame is not None
+        a = np.linspace(0, 2 * np.pi, 120)
+        unit = np.c_[np.cos(a), np.sin(a)]
+
+        def ring(r: float) -> np.ndarray:
+            return self.px(frame.to_px(np.array([0.5, 0.0]) + r * unit))
+
+        layer = img.copy()
+        cv2.fillPoly(layer, [ring(SOUNDHOLE_R)], BGR["shadow"], cv2.LINE_AA)
+        cv2.addWeighted(layer, SOUNDHOLE_ALPHA, img, 1 - SOUNDHOLE_ALPHA, 0, dst=img)
+        layer = img.copy()
+        for r, colour, width in ROSETTE:
+            cv2.polylines(layer, [ring(r)], True, BGR[colour], width, cv2.LINE_AA)
+        cv2.addWeighted(layer, ROSETTE_ALPHA, img, 1 - ROSETTE_ALPHA, 0, dst=img)
+        # The latest strum's ring eases out from the rosette to the rim and fades.
+        flash_s = self.cfg.ui.flash_ms / 1000.0
+        last = next((r for r in reversed(snap.recent) if r.played), None)
+        if last is None or not 0.0 <= t - last.hit.t < flash_s:
+            return
+        x = (t - last.hit.t) / flash_s
+        r = ROSETTE[-1][0] + (self.cfg.strings.head_half_width - ROSETTE[-1][0]) * (
+            1 - (1 - x) ** 2
+        )
+        colour = BGR["accent"] if last.hit.direction == "down" else BGR["up"]
+        layer = img.copy()
+        cv2.polylines(layer, [ring(r)], True, colour, 2 + last.velocity // 64, cv2.LINE_AA)
+        alpha = PULSE_ALPHA * (1 - x)
+        cv2.addWeighted(layer, alpha, img, 1 - alpha, 0, dst=img)
+
     def _handle(self, img: np.ndarray, snap: EngineSnapshot, next_slot: int | None) -> None:
         sections = snap.handle_sections_px()
         if sections is None:
@@ -210,19 +259,7 @@ class Overlay:
             return
         frame = snap.frame
         assert frame is not None
-        # A darkened band behind the strings, so they read against a bright string bed.
         sc = self.cfg.strings
-        band = np.array(
-            [
-                [sc.u_min - 0.03, sc.v_min - 0.05],
-                [sc.u_max + 0.03, sc.v_min - 0.05],
-                [sc.u_max + 0.03, sc.v_max + 0.05],
-                [sc.u_min - 0.03, sc.v_max + 0.05],
-            ]
-        )
-        shade = img.copy()
-        cv2.fillPoly(shade, [self.px(frame.to_px(band))], BGR["shadow"], cv2.LINE_AA)
-        cv2.addWeighted(shade, 0.45, img, 0.55, 0, dst=img)
         # The newest played hit per string sets it vibrating; the rest stay still.
         flash_s = self.cfg.ui.flash_ms / 1000.0
         ringing: dict[int, tuple[float, float, tuple[int, int, int]]] = {}
