@@ -40,6 +40,12 @@ BGR = {
 }
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 ONSET_TICK_S = 0.3
+# A hit string is drawn vibrating for ``ui.flash_ms``: a standing wave (fixed ends)
+# whose swing decays, inside a faint blur of its full width. Display only.
+WOBBLE_POINTS = 24
+WOBBLE_AMP = 0.035  # peak sideways swing at full velocity, head lengths
+WOBBLE_HZ = (7.0, 8.0, 9.0, 10.5, 12.0, 14.0)  # drawn vibration rate, low E -> high E
+STRING_WIDTH = (4, 4, 3, 3, 2, 2)  # low E -> high E
 
 
 @dataclass(frozen=True)
@@ -217,30 +223,54 @@ class Overlay:
         shade = img.copy()
         cv2.fillPoly(shade, [self.px(frame.to_px(band))], BGR["shadow"], cv2.LINE_AA)
         cv2.addWeighted(shade, 0.45, img, 0.55, 0, dst=img)
+        # The newest played hit per string sets it vibrating; the rest stay still.
+        flash_s = self.cfg.ui.flash_ms / 1000.0
+        ringing: dict[int, tuple[float, float, tuple[int, int, int]]] = {}
+        for rec in snap.recent:
+            age = t - rec.hit.t
+            if rec.played and 0.0 <= age < flash_s:
+                colour = BGR["accent"] if rec.hit.direction == "down" else BGR["up"]
+                ringing[rec.hit.string] = (age, rec.velocity / 127.0, colour)
+        along = np.linspace(0.0, 1.0, WOBBLE_POINTS)[:, None]
+        bow = np.sin(np.pi * along) * frame.v  # standing-wave shape, pixels per unit swing
+        if ringing:  # the blur of each ringing string's full swing, translucent
+            blur = img.copy()
+            for s, (age, vel, colour) in ringing.items():
+                line = segs[s][0] + (segs[s][1] - segs[s][0]) * along
+                amp = self._swing(age, vel, flash_s, frame.head_len)
+                env = np.vstack([line + amp * bow, (line - amp * bow)[::-1]])
+                cv2.fillPoly(blur, [self.px(env)], colour, cv2.LINE_AA)
+            cv2.addWeighted(blur, 0.35, img, 0.65, 0, dst=img)
         # Guitar-like strings: thicker low strings, bronze wound and silver plain, each
-        # with a dark outline.
+        # with a dark outline. A ringing string swings and takes the strum colour.
         for s, seg in enumerate(segs):
-            a, b = (tuple(p) for p in self.px(seg))
-            width = (4, 4, 3, 3, 2, 2)[s] if s < 6 else 2
+            width = STRING_WIDTH[s]
             colour = BGR["wound"] if s < 3 else BGR["plain"]
             if snap.muted:
                 colour = BGR["muted"]
-            cv2.line(img, a, b, BGR["shadow"], width + 3, cv2.LINE_AA)
-            cv2.line(img, a, b, colour, width, cv2.LINE_AA)
-        flash_s = self.cfg.ui.flash_ms / 1000.0
-        for rec in snap.recent:
-            age = t - rec.hit.t
-            if not rec.played or not 0.0 <= age < flash_s:
-                continue
-            strength = (1.0 - age / flash_s) * (0.4 + 0.6 * rec.velocity / 127.0)
-            colour = BGR["accent"] if rec.hit.direction == "down" else BGR["up"]
-            glow = tuple(int(c * strength) for c in colour)
-            a, b = (tuple(p) for p in self.px(segs[rec.hit.string]))
-            cv2.line(img, a, b, glow, 9, cv2.LINE_AA)
-            cv2.line(img, a, b, colour, 4, cv2.LINE_AA)
-        if snap.muted:
-            centre = self.px(segs[:, 0].mean(axis=0))
-            _text(img, "muted", tuple(centre), 0.7, BGR["grey"])
+            line = seg[0] + (seg[1] - seg[0]) * along
+            if s in ringing:
+                age, vel, colour = ringing[s]
+                amp = self._swing(age, vel, flash_s, frame.head_len)
+                line = line + amp * np.sin(2 * np.pi * WOBBLE_HZ[s] * age) * bow
+                width += 1
+            pts = [self.px(line)]
+            cv2.polylines(img, pts, False, BGR["shadow"], width + 3, cv2.LINE_AA)
+            cv2.polylines(img, pts, False, colour, width, cv2.LINE_AA)
+        if snap.muted:  # a felt damper across the strings, labelled off to the side
+            u = sc.u_max - 0.06
+            ends = np.array([[u, sc.v_min - 0.06], [u, sc.v_max + 0.06]])
+            a, b = (tuple(p) for p in self.px(frame.to_px(ends)))
+            cv2.line(img, a, b, BGR["shadow"], 13, cv2.LINE_AA)
+            cv2.line(img, a, b, BGR["grey"], 9, cv2.LINE_AA)
+            label = self.px(frame.to_px(np.array([u, sc.v_max + 0.14])))
+            _text(img, "muted", tuple(label - (24, -5)), 0.55, BGR["grey"])
+
+    @staticmethod
+    def _swing(age: float, vel: float, flash_s: float, head_len: float) -> float:
+        """Peak sideways swing of a ringing string, pixels: fades out by ``flash_s``."""
+        fade = 1.0 - age / flash_s
+        return WOBBLE_AMP * head_len * fade * fade * (0.4 + 0.6 * vel)
 
     def _fingertips(self, img: np.ndarray, snap: EngineSnapshot) -> None:
         tips = snap.fingertips_px()
@@ -249,29 +279,42 @@ class Overlay:
             return
         self._trail.append(tips[0])
         colour = BGR["accent"] if snap.grip == "closed" else BGR["grey"]
+        # Right after a strum the trail takes its direction's colour, so it reads as
+        # the stroke that played.
+        flash_s = self.cfg.ui.flash_ms / 1000.0
+        last = next((r for r in reversed(snap.recent) if r.played), None)
+        if last is not None and 0.0 <= snap.t - last.hit.t < flash_s:
+            colour = BGR["accent"] if last.hit.direction == "down" else BGR["up"]
         pts = self.px(np.array(self._trail))
-        for i in range(1, len(pts)):
+        for i in range(1, len(pts)):  # tapered: thin and dim at the tail
             fade = i / len(pts)
             c = tuple(int(v * fade) for v in colour)
-            cv2.line(img, tuple(pts[i - 1]), tuple(pts[i]), c, 2, cv2.LINE_AA)
+            cv2.line(img, tuple(pts[i - 1]), tuple(pts[i]), c, 1 + int(6 * fade), cv2.LINE_AA)
         cv2.circle(img, tuple(pts[-1]), 6, colour, -1, cv2.LINE_AA)
 
     def _grip_badge(self, img: np.ndarray, snap: EngineSnapshot) -> None:
-        """The strumming hand outlined, with a badge: ARMED (pick grip) or OFF."""
+        """The strumming hand outlined; a small pill above it when not armed (off or ?).
+        Armed needs no label: the amber outline says it."""
         hand = snap.strumming
         if hand is None:
             return
         armed = snap.grip == "closed"
         colour = BGR["accent"] if armed else BGR["grey"]
         hull = cv2.convexHull(self.px(hand.landmarks))
-        cv2.polylines(img, [hull], True, colour, 3 if armed else 2, cv2.LINE_AA)
-        label = {"closed": "ARMED", "open": "OFF", "unknown": "?"}[snap.grip]
+        cv2.polylines(img, [hull], True, colour, 2 if armed else 1, cv2.LINE_AA)
+        if armed:
+            return
+        label = {"open": "off", "unknown": "?"}[snap.grip]
         top = hull.reshape(-1, 2)[:, 1].min()
         cx = int(hull.reshape(-1, 2)[:, 0].mean())
-        (w, h), _ = cv2.getTextSize(label, FONT, 0.9, 2)
-        x0, y1 = cx - w // 2 - 10, max(h + 14, int(top) - 10)
-        cv2.rectangle(img, (x0, y1 - h - 14), (x0 + w + 20, y1), colour, -1, cv2.LINE_AA)
-        cv2.putText(img, label, (x0 + 10, y1 - 7), FONT, 0.9, BGR["shadow"], 2, cv2.LINE_AA)
+        (w, h), _ = cv2.getTextSize(label, FONT, 0.5, 1)
+        r = (h + 10) // 2  # pill end radius
+        cy = max(r + 2, int(top) - r - 6)
+        x0, x1 = cx - w // 2, cx + w - w // 2
+        cv2.rectangle(img, (x0, cy - r), (x1, cy + r), colour, -1)
+        cv2.circle(img, (x0, cy), r, colour, -1, cv2.LINE_AA)
+        cv2.circle(img, (x1, cy), r, colour, -1, cv2.LINE_AA)
+        cv2.putText(img, label, (x0, cy + h // 2), FONT, 0.5, BGR["shadow"], 1, cv2.LINE_AA)
 
     def _chord(self, img: np.ndarray, snap: EngineSnapshot) -> None:
         # "open" would read like the open hand, so open strings show as "no chord".
