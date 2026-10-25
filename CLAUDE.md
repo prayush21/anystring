@@ -15,6 +15,7 @@ uv run ruff check . && uv run ruff format .
 uv run racketguitar fetch-model   # once: MediaPipe hand model into models/
 uv run racketguitar          # play (calibrates on first run); `calibrate`, `replay DIR`
 uv run python -m tools.latency_probe analyze take.wav
+uv run python -m tools.grip_sweep --closed DIR --relaxed DIR   # rank grip thresholds
 ```
 
 ## Architecture
@@ -56,12 +57,14 @@ No network or AI call ever sits between a strum and its sound.
 
 Play rules (decided, do not reopen without the lead):
 
-- **Strum gate** defaults to the **pick grip**: closed pick grip (thumb pad on the side
-  of a curled index, other fingers curled) = armed, open hand = disarmed. Per-user
-  calibration and hysteresis: arming needs a score below 25 % of the closed-to-open span
-  for 2 frames, but past 50 % disarms on the first frame, so a hand relaxing for the
-  return stroke never plays it (`grip_arm_below`, `grip_release_above`,
-  `grip_hold_frames`, `grip_release_frames`). The **mic gate** is optional and off by
+- **Strum gate** defaults to the **pick grip**: thumb pad on the side of the index =
+  armed, thumb off it = disarmed. The grip score is the thumb gap alone (thumb tip to
+  the index, in palm sizes; `GRIP_SCORE_VERSION` 3), which told pick-grip strums from
+  relaxed returns best on recorded takes. Per-user calibration and a narrow hysteresis:
+  arm below 28 %, disarm above 33 % of the closed-to-open span, 1 frame each (the
+  strict setting from `tools/grip_sweep.py`; `grip_arm_below`, `grip_release_above`,
+  `grip_hold_frames`, `grip_release_frames`; `[ ] , .` move them live). The
+  **mic gate** is optional and off by
   default; with both on, a crossing needs a pick grip *and* an onset in the last 80 ms.
 - **Chords** come only from which of **4 handle sections** the fretting hand grips:
   C, G, Am, F from head to butt. There is no finger chord-shape recognition. The

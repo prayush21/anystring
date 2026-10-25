@@ -6,18 +6,19 @@
 * ``gate.mic`` on: a crossing needs a recent contact onset (``OnsetWindow``).
 * both on: both are needed; both off: every crossing plays (free air play).
 
-**Grip score** (``grip_score``): the mean of two distances in palm sizes (wrist to
-middle-finger MCP), so it ignores hand scale and rotation in the image:
+**Grip score** (``grip_score``): the thumb gap, the distance from the thumb tip (4) to
+the nearest point of the index finger (5-6-7-8) in palm sizes, so it ignores hand
+scale and rotation in the image. It is ~0.06 in a pick grip (thumb pad pressed on the
+side of the index) and ~0.7 with the thumb spread. Holding a pick *is* the thumb on
+the index, so the gate asks only that: on recorded takes the thumb gap told pick-grip
+strums from relaxed returns better than any mix with how far the other fingers reach,
+and blocked all but 2 of 89 relaxed returns while missing 9 % of strums, where the
+mixed score had to miss a third of the strums for the same.
 
-* thumb gap: thumb tip (4) to the nearest point of the index finger (5-6-7-8), which is
-  ~0.06 in a pick grip and ~0.7 with the thumb spread;
-* finger reach: mean tip-to-MCP distance of the middle, ring and pinky fingers, ~0.25
-  curled and ~0.9 extended.
-
-Lower is more closed, as ``Calibration`` expects. A fist scores like a pick grip
-(~0.16) and so arms the gate: the PID only separates a closed grip from an open hand,
-and opening the hand is what disarms. The score uses ``HandObs.raw`` so that fingertip
-smoothing never delays a disarm; hysteresis and the frame hold do the smoothing.
+Lower is more closed, as ``Calibration`` expects. A fist with the thumb on the index
+scores like a pick grip and so arms the gate. The score uses ``HandObs.raw`` so that
+fingertip smoothing never delays a disarm; hysteresis and the frame hold do the
+smoothing.
 """
 
 from __future__ import annotations
@@ -49,13 +50,12 @@ __all__ = [
 TIME_EPS = 1e-9  # seconds; window boundaries are inclusive despite float rounding
 KEEP_S = 1.0  # onsets and notes older than this (beyond every window) are dropped
 
-_WRIST, _THUMB_TIP, _MIDDLE_MCP = 0, 4, 9
+_THUMB_TIP = 4
 _INDEX = (5, 6, 7, 8)
-_REACH = ((9, 12), (13, 16), (17, 20))  # (MCP, tip) of middle, ring, pinky
 _SIZE_BONES = ((0, 5), (0, 9), (0, 13), (0, 17), (5, 17))
 # Bumped whenever grip_score changes: calibrations recorded with another version are
 # ignored (and the app recalibrates), since their scores are on a different scale.
-GRIP_SCORE_VERSION = 2
+GRIP_SCORE_VERSION = 3  # 3: thumb gap only (2 averaged in the other fingers' reach)
 
 
 def _landmarks(hand: HandObs | np.ndarray) -> np.ndarray:
@@ -78,8 +78,7 @@ def grip_score(hand: HandObs | np.ndarray) -> float:
     if not palm > 1e-6:
         return math.nan
     gap = min(_point_segment(lm[_THUMB_TIP], lm[i], lm[j]) for i, j in pairwise(_INDEX))
-    reach = sum(float(np.hypot(*(lm[tip] - lm[mcp]))) for mcp, tip in _REACH) / len(_REACH)
-    return 0.5 * (gap + reach) / palm
+    return gap / palm
 
 
 def _point_segment(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
@@ -97,7 +96,7 @@ def grip_thresholds(
     calibration: Calibration | None = None, cfg: GateConfig | None = None
 ) -> tuple[float, float]:
     """``(close_below, open_above)`` from the calibrated closed/open scores, else the
-    ``GateConfig`` defaults (template pick grip ~0.16, open hand ~0.80): the
+    ``GateConfig`` defaults (template pick grip ~0.06, open hand ~0.70): the
     ``grip_arm_below`` and ``grip_release_above`` fractions of the way from closed to open.
 
     A calibration whose closed score is not below its open score, or that was recorded
@@ -167,7 +166,10 @@ class GripClassifier:
         self._count = 0
 
     def update(self, hand: HandObs | None) -> GripState:
-        s = grip_score(hand) if hand is not None else math.nan
+        return self.update_score(grip_score(hand) if hand is not None else math.nan)
+
+    def update_score(self, s: float) -> GripState:
+        """``update`` from an already computed grip score (NaN = no hand)."""
         self.score = s if math.isfinite(s) else None
         vote: GripState
         if self.score is None:

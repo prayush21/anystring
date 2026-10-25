@@ -53,6 +53,8 @@ class Status:
     message: str | None = None
     grip_score: float | None = None  # strumming hand's grip score (lower = closed)
     grip_band: tuple[float, float] | None = None  # (close_below, open_above)
+    # (closed, open) scores the thresholds are shares of: the calibration or defaults.
+    grip_span: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -298,11 +300,21 @@ class Overlay:
         cv2.rectangle(img, (x0, y - 8), (at(lo), y + 8), (0, 90, 140), -1)
         cv2.line(img, (at(lo), y - 12), (at(lo), y + 12), BGR["accent"], 2)
         cv2.line(img, (at(hi), y - 12), (at(hi), y + 12), BGR["grey"], 2)
+        if s.grip_span is not None and s.grip_span[1] > s.grip_span[0]:
+            c, o = s.grip_span
+
+            def show(v: float) -> str:  # share of the closed -> open span
+                return f"{(v - c) / (o - c):.0%}"
+        else:
+
+            def show(v: float) -> str:
+                return f"{v:.2f}"
+
         if s.grip_score is not None:
             cv2.circle(img, (at(s.grip_score), y), 7, BGR["text"], -1, cv2.LINE_AA)
-            score = f"grip {s.grip_score:.2f}  arm < {lo:.2f}  off > {hi:.2f}"
+            score = f"grip {show(s.grip_score)}  arm < {show(lo)}  off > {show(hi)}"
         else:
-            score = "grip: no strumming hand"
+            score = f"grip: no strumming hand  arm < {show(lo)}  off > {show(hi)}"
         _text(img, score, (x0, y + 30), 0.5)
 
     def _meter(self, img: np.ndarray, s: Status, t: float) -> None:

@@ -63,8 +63,9 @@ def settle(clf: GripClassifier, h, n: int = 5) -> str:
 
 def test_template_scores_are_ordered():
     pick, fist, open_ = (grip_score(hand_template(s)) for s in ("pick", "fist", "open"))
-    assert pick < GateConfig.grip_closed_default < GateConfig.grip_open_default <= open_ + 0.01
-    assert fist < GateConfig.grip_closed_default
+    # The defaults are the template pick grip and spread hand, rounded.
+    assert pick == pytest.approx(GateConfig.grip_closed_default, abs=0.01)
+    assert open_ == pytest.approx(GateConfig.grip_open_default, abs=0.02)
     lo, hi = grip_thresholds()
     assert pick < fist < lo < hi < open_
 
@@ -177,10 +178,10 @@ def test_calibration_shifts_thresholds():
 
 
 def test_calibrated_user_with_a_half_open_hand():
-    """A user whose relaxed 'open' hand is only half open: misread as closed with the
-    defaults, read correctly once calibrated."""
+    """A user whose relaxed 'open' hand barely lifts the thumb off the index: misread as
+    closed with the defaults, read correctly once calibrated."""
     rng = np.random.default_rng(3)
-    users_open = blend_with_score(0.42)
+    users_open = blend_with_score(0.20)
     closed_frames = [hand("pick", jitter=1.0, rng=rng) for _ in range(30)]
     open_frames = [hand_obs(0.0, place_hand(users_open, (640, 360)), jitter_px=1.0, rng=rng)]
     open_frames *= 30
@@ -188,7 +189,7 @@ def test_calibrated_user_with_a_half_open_hand():
     cal = calibrate_grip(closed_frames, open_frames, base=Calibration(detect_to_audio_ms=25.0))
     assert cal.detect_to_audio_ms == 25.0
     assert cal.grip_closed_score == pytest.approx(grip_score(hand_template("pick")), abs=0.03)
-    assert cal.grip_open_score == pytest.approx(0.42, abs=0.03)
+    assert cal.grip_open_score == pytest.approx(0.20, abs=0.03)
     relaxed = place_hand(users_open, (640, 360))
     assert settle(GripClassifier(), relaxed) == "closed"
     assert settle(GripClassifier(calibration=cal), relaxed) == "open"
@@ -342,9 +343,14 @@ def test_open_hand_disarms_mid_play_and_lost_hand_disarms():
     g.observe_hand(1.017, hand("open"))
     assert not g.allows(1.017)  # the first open frame disarms
     g.observe_hand(1.033, hand("pick"))
-    assert not g.allows(1.033)  # re-arming takes the 2-frame hold
-    g.observe_hand(1.050, hand("pick"))
-    assert g.allows(1.050)
+    assert g.allows(1.033)  # and the default 1-frame hold re-arms on the first pick frame
+    held = make_gate(Config().with_overrides({"gate": {"grip_hold_frames": 2}}))
+    drive(held, "pick", 1.0)
+    held.observe_hand(1.017, hand("open"))
+    held.observe_hand(1.033, hand("pick"))
+    assert not held.allows(1.033)  # a 2-frame hold waits one more frame
+    held.observe_hand(1.050, hand("pick"))
+    assert held.allows(1.050)
     drive(g, "pick", 1.1)
     drive(g, None, 1.2, frames=2)
     assert g.grip == "unknown" and not g.allows(1.2)
