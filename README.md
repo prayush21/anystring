@@ -9,6 +9,22 @@ synthesized guitar with low latency. Nothing is attached to the racket.
 The spec is [docs/PID.md](docs/PID.md); the architecture and repo rules are in
 [CLAUDE.md](CLAUDE.md).
 
+## Quick start for judges
+
+Racket Guitar needs real hardware: a **MacBook on Apple silicon** (its camera does all the
+tracking), headphones or speakers, and any **tennis or badminton racket**. There is no
+web or phone version. If you cannot run it, the demo video shows the full thing; the
+headless test suite (`uv run pytest`) needs no hardware at all.
+
+```bash
+uv sync
+uv run racketguitar fetch-model     # one time: hand model (~7.5 MB) into models/
+uv run racketguitar                 # click the racket's 4 points, calibrate, strum
+```
+
+Allow camera access for your terminal when macOS asks. Song mode, voice commands
+and the mic gate are optional extras described below.
+
 ## Setup
 
 You need macOS on Apple silicon, Python 3.12, [uv](https://docs.astral.sh/uv/), a
