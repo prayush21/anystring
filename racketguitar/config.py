@@ -42,6 +42,7 @@ __all__ = [
     "AudioConfig",
     "UIConfig",
     "ReplayConfig",
+    "SongConfig",
     "Config",
     "Calibration",
     "home_dir",
@@ -233,6 +234,20 @@ class ReplayConfig:
 
 
 @dataclass(frozen=True)
+class SongConfig:
+    """Song mode (``song/``): a chord sheet drives which chords sit on the handle."""
+
+    speed: float = 0.7  # play songs at this fraction of the sheet's tempo
+    count_in_beats: int = 4  # "3, 2, 1, GO" before the first chord
+    chord_bars: float = 1.0  # length of a chord the sheet gives no length for
+    simplify_slash: bool = True  # play C/B as C, so passing bass notes use no section
+    listen_s: float = 3.0  # push-to-talk recording length
+    stt_model: str = "scribe_v2"  # ElevenLabs speech-to-text model
+    stt_timeout_s: float = 30.0
+    match_min_score: float = 0.5  # a spoken title must match a song file at least this well
+
+
+@dataclass(frozen=True)
 class Config:
     camera: CameraConfig = field(default_factory=CameraConfig)
     tracking: TrackerConfig = field(default_factory=TrackerConfig)
@@ -248,6 +263,7 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     replay: ReplayConfig = field(default_factory=ReplayConfig)
+    song: SongConfig = field(default_factory=SongConfig)
 
     def with_overrides(self, overrides: dict[str, Any]) -> Config:
         """Return a copy with nested ``{"section": {"key": value}}`` overrides applied."""

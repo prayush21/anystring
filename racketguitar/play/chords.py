@@ -19,13 +19,10 @@ class ChordSelector:
     """Tracks the active handle section and returns the voicing to play."""
 
     def __init__(self, chords: ChordConfig, strings: StringsConfig) -> None:
-        if not chords.chords:
-            raise ValueError("chords.chords must not be empty")
-        for name, notes in chords.chords:
-            if len(notes) != strings.count:
-                raise ValueError(f"chord {name!r} needs {strings.count} notes")
-        self._names = tuple(name for name, _ in chords.chords)
-        self._voicings = tuple(tuple(notes) for _, notes in chords.chords)
+        self._count = strings.count
+        self._names: tuple[str, ...] = ()
+        self._voicings: tuple[tuple[int | None, ...], ...] = ()
+        self.set_chords(chords.chords)
         self._open = tuple(strings.tuning)
         self._h = chords.hysteresis
         self._hold = chords.fret_loss_hold_ms / 1000.0
@@ -35,6 +32,11 @@ class ChordSelector:
     @property
     def names(self) -> tuple[str, ...]:
         return self._names
+
+    @property
+    def voicings_all(self) -> tuple[tuple[int | None, ...], ...]:
+        """Voicing of every section, matching ``names``."""
+        return self._voicings
 
     @property
     def zone(self) -> int | None:
@@ -50,6 +52,19 @@ class ChordSelector:
     def voicing(self) -> tuple[int | None, ...]:
         """MIDI note per string (low E first); None = string not played."""
         return self._open if self._zone is None else self._voicings[self._zone]
+
+    def set_chords(self, chords: tuple[tuple[str, tuple[int | None, ...]], ...]) -> None:
+        """Relabel the sections (song mode) without touching the hand state. With the
+        same section count the active section stays; otherwise it is found afresh."""
+        if not chords:
+            raise ValueError("chords.chords must not be empty")
+        for name, notes in chords:
+            if len(notes) != self._count:
+                raise ValueError(f"chord {name!r} needs {self._count} notes")
+        if len(chords) != len(self._names):
+            self._zone = None
+        self._names = tuple(name for name, _ in chords)
+        self._voicings = tuple(tuple(notes) for _, notes in chords)
 
     def reset(self) -> None:
         self._zone = None

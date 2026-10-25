@@ -144,3 +144,57 @@ def test_chord_change_takes_effect_on_next_hits(cfg):
     g, f_ = dict(DEFAULT_CHORDS)["G"], dict(DEFAULT_CHORDS)["F"]
     assert [e.midi for e in events[:6]] == list(g)
     assert [e.midi for e in events[6:]] == list(f_)[::-1]
+
+
+# -- song mode relabels -------------------------------------------------------------
+
+SONG_SET = (
+    ("Em", (40, 47, 52, 55, 59, 64)),
+    ("D", (None, None, 50, 57, 62, 66)),
+    ("G", (43, 47, 50, 55, 59, 67)),
+    ("Bm", (None, 47, 54, 59, 62, 66)),
+)
+
+
+def test_set_chords_keeps_the_active_section(cfg):
+    sel = _selector(cfg)
+    sel.update(0.0, 0.375)  # section 1
+    sel.set_chords(SONG_SET)
+    assert sel.zone == 1 and sel.chord == "D" and sel.voicing == SONG_SET[1][1]
+    assert sel.names == ("Em", "D", "G", "Bm") and sel.voicings_all == tuple(v for _, v in SONG_SET)
+    sel.set_chords(SONG_SET[:3])  # a new section count: found afresh on the next update
+    assert sel.zone is None
+    sel.update(0.1, 0.9)
+    assert sel.chord == "G"
+
+
+def test_set_chords_validates(cfg):
+    sel = _selector(cfg)
+    with pytest.raises(ValueError):
+        sel.set_chords(())
+    with pytest.raises(ValueError):
+        sel.set_chords((("X", (40, 45)),))
+
+
+def test_engine_relabel_mid_strum_drops_nothing(cfg):
+    """A relabel lands between two frames of one sweep: the strum carries on and the
+    strings after the relabel play the new chord."""
+    engine = Engine(cfg, ScriptedGate.always())
+    pose = make_pose()
+    frames = sweep(pose, v_start=-0.45, v_end=0.45, duration_s=0.1, fps=60.0)
+    before: list = []
+    after: list = []
+    for f in frames:
+        if before and not after and engine.snapshot().chord == "Am":  # first notes out
+            engine.set_chords(SONG_SET)
+            assert engine.snapshot().chord_names == ("Em", "D", "G", "Bm")
+        hands = [fretting_hand(pose, f.t, handle_t=0.625), f]  # section 2
+        out = engine.process(pose, hands)
+        (after if engine.snapshot().chord == "G" else before).extend(out)
+    old, new = dict(DEFAULT_CHORDS)["Am"], SONG_SET[2][1]
+    assert len(engine.snapshot().recent) == 6  # every string crossed once, none lost
+    assert before and after
+    assert all(e.midi == old[e.string] for e in before)
+    assert all(e.midi == new[e.string] for e in after)
+    engine.set_chords(SONG_SET)  # same set again: no change
+    assert engine.snapshot().chord == "G"

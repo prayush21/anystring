@@ -15,6 +15,7 @@ import numpy as np
 
 from racketguitar.config import Config
 from racketguitar.play.engine import EngineSnapshot
+from racketguitar.song.player import SongPlayer, SongState, TimedLine
 from racketguitar.types import RacketPose
 
 __all__ = ["Status", "CalibrationView", "View", "Overlay", "BGR"]
@@ -33,6 +34,8 @@ BGR = {
     "text": (245, 245, 245),
     "shadow": (20, 20, 20),
     "rec": (40, 40, 230),
+    "next": (90, 230, 120),  # song mode: the section to grip next
+    "panel": (35, 30, 30),
 }
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 ONSET_TICK_S = 0.3
@@ -71,6 +74,8 @@ class View:
     status: Status = field(default_factory=Status)
     calibration: CalibrationView | None = None
     track_points: np.ndarray | None = None  # features the racket tracker follows
+    song: SongPlayer | None = None  # song mode: the loaded song (read only here)
+    song_state: SongState | None = None  # ... and where it is this frame
 
 
 class Overlay:
@@ -92,9 +97,11 @@ class Overlay:
         self._width = img.shape[1]
         snap = view.snapshot
         self._lock(img, view, clicks, prompt, debug)
+        st = view.song_state
+        next_slot = st.next_slot if st is not None and st.phase != "done" else None
         if snap.frame is not None:
             self._racket(img, snap)
-            self._handle(img, snap)
+            self._handle(img, snap, next_slot)
             self._strings(img, snap, view.t)
         self._fingertips(img, snap)
         self._grip_badge(img, snap)
@@ -106,6 +113,8 @@ class Overlay:
         if debug or view.calibration is not None:  # calibration shows the score live
             self._grip_meter(img, view.status)
         self._meter(img, view.status, view.t)
+        if view.song is not None and st is not None:
+            self._song(img, view.song, st)
         if view.calibration is not None:
             self._calibration(img, view.calibration)
         return img
@@ -157,7 +166,7 @@ class Overlay:
         shaft = frame.to_px(np.array([[0.0, 0.0], [snap.handle.u_at(1.0), 0.0]]))
         cv2.line(img, *map(tuple, self.px(shaft)), BGR["racket"], 2, cv2.LINE_AA)
 
-    def _handle(self, img: np.ndarray, snap: EngineSnapshot) -> None:
+    def _handle(self, img: np.ndarray, snap: EngineSnapshot, next_slot: int | None) -> None:
         sections = snap.handle_sections_px()
         if sections is None:
             return
@@ -166,11 +175,17 @@ class Overlay:
         side = frame.v * 0.14 * frame.head_len
         for i, (seg, name) in enumerate(zip(sections, snap.chord_names, strict=True)):
             active = snap.zone == i
-            colour = BGR["accent"] if active else BGR["grey"]
+            upcoming = next_slot == i and not active
+            colour = BGR["accent"] if active else BGR["next"] if upcoming else BGR["grey"]
             a, b = self.px(seg)
-            cv2.line(img, tuple(a), tuple(b), colour, 9 if active else 5, cv2.LINE_AA)
+            if upcoming:  # a glow, so the next grip reads at a glance
+                cv2.line(img, tuple(a), tuple(b), BGR["shadow"], 15, cv2.LINE_AA)
+            cv2.line(img, tuple(a), tuple(b), colour, 9 if active or upcoming else 5, cv2.LINE_AA)
             mid = self.px(seg.mean(axis=0) + side)
-            _text(img, name, tuple(mid - (12, -8)), 0.8 if active else 0.6, colour)
+            big = active or upcoming
+            _text(img, name, tuple(mid - (12, -8)), 0.8 if big else 0.6, colour, 2 if big else 1)
+            if upcoming:
+                _text(img, "next", tuple(mid - (12, 18)), 0.5, colour)
 
     def _strings(self, img: np.ndarray, snap: EngineSnapshot, t: float) -> None:
         segs = snap.strings_px()
@@ -300,6 +315,107 @@ class Overlay:
         cv2.rectangle(img, (x0, y0 - fill), (x0 + 12, y0), BGR["ok"], -1)
         if any(0.0 <= t - o < ONSET_TICK_S for o in s.onsets):
             cv2.rectangle(img, (x0 - 8, y0 - h), (x0 - 3, y0), BGR["accent"], -1)
+
+    # -- song mode ----------------------------------------------------------------------
+
+    def _song(self, img: np.ndarray, player: SongPlayer, st: SongState) -> None:
+        if st.phase in ("countin", "playing"):
+            self._lyrics(img, player, st)
+        if st.phase == "countin" and st.count is not None:
+            label = "GO!" if st.count == 0 else str(st.count)
+            (w, h), _ = cv2.getTextSize(label, FONT, 5.0, 10)
+            org = ((img.shape[1] - w) // 2, (img.shape[0] + h) // 2)
+            _text(img, label, org, 5.0, BGR["next"] if st.count == 0 else BGR["accent"], 10)
+        elif st.phase in ("ready", "done"):
+            self._song_card(img, player, st)
+
+    def _song_card(self, img: np.ndarray, player: SongPlayer, st: SongState) -> None:
+        song = player.song
+        by = f" by {song.artist}" if song.artist else ""
+        chords = "  ".join(dict.fromkeys(c.name for c in player.timeline.chords))
+        speed = f"{player.bpm:.0f} BPM ({player.speed:.0%} of {song.tempo:g})"
+        capo = f"   capo {song.capo}" if song.capo else ""
+        if st.phase == "ready":
+            rows = [
+                (f"{song.title}{by} is ready", 0.9, BGR["text"]),
+                (f"{speed}{capo}   starts on {st.next_chord}", 0.6, BGR["grey"]),
+                (f"Chords: {chords}", 0.6, BGR["grey"]),
+                (
+                    "Grip the green section. Say 'start' or press SPACE when you are.",
+                    0.65,
+                    BGR["next"],
+                ),
+            ]
+        else:
+            rows = [
+                (f"That was {song.title}{by}", 0.9, BGR["text"]),
+                ("Say 'again' or press SPACE to play it again.", 0.65, BGR["next"]),
+            ]
+        w, h = img.shape[1], img.shape[0]
+        box_w, box_h = min(w - 40, 900), 40 + 38 * len(rows)
+        x0, y0 = (w - box_w) // 2, h // 2 - box_h // 2
+        shade = img.copy()
+        cv2.rectangle(shade, (x0, y0), (x0 + box_w, y0 + box_h), BGR["panel"], -1)
+        cv2.addWeighted(shade, 0.8, img, 0.2, 0, dst=img)
+        cv2.rectangle(img, (x0, y0), (x0 + box_w, y0 + box_h), BGR["next"], 2, cv2.LINE_AA)
+        for i, (text, scale, colour) in enumerate(rows):
+            _text(img, text, (x0 + 24, y0 + 44 + 38 * i), scale, colour, 2 if i == 0 else 1)
+
+    def _lyrics(self, img: np.ndarray, player: SongPlayer, st: SongState) -> None:
+        """The current lyric with its chords over the words, the next line below, and a
+        bar of beats: what is playing and how long until the next change."""
+        lines = player.timeline.lines
+        i = st.line if st.line is not None else -1
+        current = lines[i] if i >= 0 else None
+        upcoming = lines[i + 1] if i + 1 < len(lines) else None
+        w = img.shape[1]
+        y0, y1 = 96, 250
+        shade = img.copy()
+        cv2.rectangle(shade, (0, y0), (w, y1), BGR["panel"], -1)
+        cv2.addWeighted(shade, 0.7, img, 0.3, 0, dst=img)
+        x = 32
+        if current is not None:
+            _text(img, current.section, (x, y0 + 22), 0.5, BGR["grey"])
+            self._lyric_line(img, current, (x, y0 + 82), 0.9, st.chord)
+            frac = (st.beat - current.beat) / current.beats if current.beats else 0.0
+            cv2.rectangle(img, (x, y0 + 94), (w - x, y0 + 98), BGR["grey"], -1)
+            fill = x + int((w - 2 * x) * min(max(frac, 0.0), 1.0))
+            cv2.rectangle(img, (x, y0 + 94), (fill, y0 + 98), BGR["accent"], -1)
+        if upcoming is not None:
+            nxt_y = y0 + 140 if current is not None else y0 + 82
+            self._lyric_line(img, upcoming, (x, nxt_y), 0.65, None, dim=True)
+        if st.next_chord is not None and st.beats_to_next is not None:
+            beats = max(0.0, st.beats_to_next)
+            note = f"next {st.next_chord} in {beats:.0f}" if beats >= 0.5 else st.next_chord
+            (tw, _), _ = cv2.getTextSize(note, FONT, 0.7, 2)
+            _text(img, note, (w - tw - 32, y0 + 22), 0.7, BGR["next"], 2)
+
+    def _lyric_line(
+        self,
+        img: np.ndarray,
+        line: TimedLine,
+        org: tuple[int, int],
+        scale: float,
+        playing: str | None,
+        dim: bool = False,
+    ) -> None:
+        x, y = org
+        thick = 1 if dim else 2
+        colour = BGR["grey"] if dim else BGR["text"]
+        if line.text:
+            _text(img, line.text, (x, y), scale, colour, thick)
+        char_w = cv2.getTextSize("a", FONT, scale, thick)[0][0]
+        last_end = -1
+        for col, name in line.labels:
+            head = line.text[:col]
+            cx = x + cv2.getTextSize(head, FONT, scale, thick)[0][0] if head else x
+            cx += max(0, col - len(line.text)) * char_w
+            cx = max(cx, last_end + 8)  # never let two labels overlap
+            on = name == playing
+            ccol = BGR["accent"] if on else BGR["next"] if not dim else BGR["grey"]
+            cscale = scale * 0.8
+            _text(img, name, (cx, y - int(34 * scale)), cscale, ccol, 2 if on else 1)
+            last_end = cx + cv2.getTextSize(name, FONT, cscale, 2)[0][0]
 
     def _calibration(self, img: np.ndarray, c: CalibrationView) -> None:
         w = img.shape[1]

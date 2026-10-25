@@ -1,8 +1,9 @@
 """The per-frame play step, shared by the live app and the replay harness.
 
 Live and replay must run exactly the same code from the moment a frame's observations
-exist, or a replay would prove nothing. ``Pipeline.step`` is that code: it feeds the
-frame's drained mic onsets to the gate, then runs the engine.
+exist, or a replay would prove nothing. ``Pipeline.step`` is that code: it applies any
+song-mode chord relabel, feeds the frame's drained mic onsets to the gate, then runs
+the engine.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ class FrameInput:
     pose: RacketPose
     hands: tuple[HandObs, ...]
     onsets: tuple[Onset, ...]  # drained just before this frame, oldest first
+    # Song mode: relabel the handle sections from this frame on (None = unchanged).
+    chords: tuple[tuple[str, tuple[int | None, ...]], ...] | None = None
 
 
 class Pipeline:
@@ -39,6 +42,8 @@ class Pipeline:
         self.engine = Engine(cfg, self.gate)
 
     def step(self, frame: FrameInput) -> list[NoteEvent]:
+        if frame.chords is not None:
+            self.engine.set_chords(frame.chords)
         for onset in frame.onsets:
             self.gate.observe_onset(onset)
         return self.engine.process(frame.pose, frame.hands)

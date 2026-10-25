@@ -103,6 +103,7 @@ enforces this with an ownership map:
 | WP3 Audio | `audio/`, `tests/audio/` |
 | WP4 Contact gate | `capture/mic.py`, `play/gate.py`, `tests/gate/` |
 | WP5 Integration | `app.py`, `pipeline.py`, `ui/`, `replay/`, `tools/latency_probe.py`, `tests/integration/` (the only layer allowed to import across packages) |
+| WP7 Song mode | `song/` (sheets, voicings, player, library, voice), `tests/song/` |
 
 `play/` and `capture/` are shared directories: WP2 and WP4 both live in `play/`, WP1
 and WP4 in `capture/`, and they still must not import each other. A new file there
@@ -142,6 +143,18 @@ Work is gated: no phase starts until the lead approves the previous gate. Phase 
 WP0 (this skeleton). Phase 1 is WP1 to WP4 in parallel, each built against only its
 own row of the PID's work-package table. Next comes WP5 integration, then on-device
 acceptance on the MacBook, then the WP6 verification by a fresh agent.
+
+## Song mode (WP7)
+
+- A chord sheet (ChordPro or chords above lyrics, in `~/.racketguitar/songs/`, never
+  in the repo since sheets hold lyrics) becomes a timeline. `SongPlayer` plans which
+  chord labels each handle section over time; chords still come only from grip
+  position. Relabels reach the engine only via `FrameInput.chords` ->
+  `Engine.set_chords`, which keeps gate, strum and mute state, so recordings replay
+  exactly and a relabel on the beat drops nothing.
+- Voice (`s`): a short clip goes to ElevenLabs speech-to-text (`$ELEVENLABS_API_KEY`)
+  on a worker thread; titles match song files fuzzily. No network call is on the play
+  path. Tests use made-up lyrics only.
 
 ## Integration (WP5)
 

@@ -278,8 +278,12 @@ def _encode(frames: list[FrameRecord]) -> dict[str, np.ndarray]:
     hand_frame, hand_t, hand_lm, hand_raw = [], [], [], []
     onset_frame, onset = [], []
     ev_frame, ev_t, ev_kind, ev_string, ev_midi, ev_vel = [], [], [], [], [], []
+    chords_frame, chords_json = [], []
     for i, fr in enumerate(frames):
         p = fr.inp.pose
+        if fr.inp.chords is not None:
+            chords_frame.append(i)
+            chords_json.append(json.dumps([[n, list(v)] for n, v in fr.inp.chords]))
         pose[i] = (p.t, p.visible, *p.origin, *p.u, *p.v, p.head_len)
         for h in fr.inp.hands:
             hand_frame.append(i)
@@ -318,6 +322,9 @@ def _encode(frames: list[FrameRecord]) -> dict[str, np.ndarray]:
         "event_string": np.array(ev_string, dtype=np.int64),
         "event_midi": np.array(ev_midi, dtype=np.int64),
         "event_velocity": np.array(ev_vel, dtype=np.int64),
+        # Song-mode chord relabels: frame index and the chord set as JSON text.
+        "chords_frame": np.array(chords_frame, dtype=np.int64),
+        "chords_json": np.array(chords_json, dtype=str),
     }
 
 
@@ -344,6 +351,9 @@ def _decode(z: dict[str, np.ndarray]) -> list[FrameRecord]:
         events[i].append(
             NoteEvent(float(t), _KINDS[int(k)], int(s), None if m < 0 else int(m), int(v))
         )
+    chords: dict[int, tuple[tuple[str, tuple[int | None, ...]], ...]] = {}
+    for i, text in zip(z.get("chords_frame", ()), z.get("chords_json", ()), strict=True):
+        chords[int(i)] = tuple((str(name), tuple(notes)) for name, notes in json.loads(str(text)))
     frames = []
     for i in range(n):
         t, vis, ox, oy, ux, uy, vx, vy, hl = z["pose"][i]
@@ -356,7 +366,12 @@ def _decode(z: dict[str, np.ndarray]) -> list[FrameRecord]:
             float(hl),
         )
         inp = FrameInput(
-            float(z["frame_t"][i]), float(z["proc_t"][i]), pose, tuple(hands[i]), tuple(onsets[i])
+            float(z["frame_t"][i]),
+            float(z["proc_t"][i]),
+            pose,
+            tuple(hands[i]),
+            tuple(onsets[i]),
+            chords.get(i),
         )
         frames.append(FrameRecord(inp, tuple(events[i]), bool(z["in_video"][i])))
     return frames

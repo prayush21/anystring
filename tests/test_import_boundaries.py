@@ -44,6 +44,9 @@ OWNERS = {
     "racketguitar/replay/": "WP5",
     "tools/latency_probe.py": "WP5",
     "tools/acceptance.py": "WP5",
+    "racketguitar/song/__init__.py": "WP0",
+    "racketguitar/song/": "WP7",
+    "tests/song/": "WP7",
 }
 
 
@@ -92,7 +95,9 @@ def local_imports(path: Path, root: Path = ROOT) -> list[tuple[int, str]]:
 def checked_files() -> list[Path]:
     files = [*(ROOT / "racketguitar").rglob("*.py"), *(ROOT / "tools").rglob("*.py")]
     files += [
-        p for d in ("vision", "play", "audio", "gate") for p in (ROOT / "tests" / d).rglob("*.py")
+        p
+        for d in ("vision", "play", "audio", "gate", "song")
+        for p in (ROOT / "tests" / d).rglob("*.py")
     ]
     return sorted(files)
 

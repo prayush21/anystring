@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -172,6 +172,19 @@ class Engine:
 
     def snapshot(self) -> EngineSnapshot:
         return self._snapshot
+
+    def set_chords(self, chords: tuple[tuple[str, tuple[int | None, ...]], ...]) -> None:
+        """Relabel the handle sections (song mode). Gate, strum, mute and ringing state
+        are kept, so a change on the beat never drops a strum."""
+        if chords != tuple(zip(self._chords.names, self._chords.voicings_all, strict=True)):
+            self._chords.set_chords(chords)
+            self._snapshot = replace(
+                self._snapshot,
+                chord_names=self._chords.names,
+                zone=self._chords.zone,
+                chord=self._chords.chord,
+                voicing=self._chords.voicing,
+            )
 
     def reset(self) -> None:
         """Forget all hand, chord and mute state (e.g. between replay sessions)."""

@@ -10,7 +10,13 @@ followed by optical flow; there are no markers.
 
 Keys in the play window: q / Esc quit, r start/stop recording, c calibrate,
 g toggle the pick-grip gate, m toggle the mic gate (needs --mic), l re-lock,
-d debug view, h help.
+d debug view, h help. Song mode: s talk ("let's play take on me", "start", "stop"),
+SPACE start/stop the song, x leave the song.
+
+Song mode reads chord sheets from ``~/.racketguitar/songs``. A ``SongPlayer`` decides
+which chords label the handle sections over the song; each relabel goes through
+``FrameInput.chords`` so it is part of the play step and of any recording. Voice
+requests (recording and speech-to-text) run on a worker thread, never on the play path.
 """
 
 from __future__ import annotations
@@ -49,6 +55,10 @@ from racketguitar.pipeline import FrameInput, Pipeline
 from racketguitar.play.gate import grip_calibrated
 from racketguitar.replay.harness import render_session, replay
 from racketguitar.replay.record import Recorder, TeeDetector
+from racketguitar.song.library import find_song, songs_dir
+from racketguitar.song.player import SongPlayer
+from racketguitar.song.sheet import Song
+from racketguitar.song.voice import VoiceError, parse_command, record_clip, transcribe, wav_bytes
 from racketguitar.types import HandObs, NoteEvent, RacketPose
 from racketguitar.ui.calibrate import CalibrationFlow
 from racketguitar.ui.overlay import CalibrationView, Overlay, Status, View
@@ -58,7 +68,10 @@ from racketguitar.vision.hands import MODEL_URL, HandModelMissingError, HandTrac
 __all__ = ["Devices", "LiveApp", "main", "gate_mode", "model_target"]
 
 WINDOW = "Racket Guitar"
-HELP = "q quit  r record  c calibrate  g grip gate  m mic gate  l re-lock  d debug  h help"
+HELP = (
+    "q quit  r record  c calibrate  g grip gate  m mic gate  l re-lock  d debug  h help"
+    "  s talk  SPACE song start/stop  x leave song"
+)
 LOCK_PROMPTS = (
     "Click the TOP of the racket head",
     "Click the THROAT, where the head meets the shaft",
@@ -114,6 +127,8 @@ class LiveApp:
         calibration_path: Path | None = None,
         record_dir: Path | None = None,
         clock: Callable[[], float] = time.monotonic,
+        song: Song | None = None,
+        song_dir: Path | None = None,
     ) -> None:
         self.cfg = cfg
         self.calibration = calibration
@@ -134,6 +149,16 @@ class LiveApp:
         self._message: str | None = None
         self._message_until = 0.0
         self._vision_ms: float | None = None
+        self.song_dir = song_dir
+        self.player: SongPlayer | None = None
+        self._song_sent: tuple | None = None  # chord set last sent to the play step
+        self._song_start = False  # start the song on the next frame
+        self._frame_t = 0.0  # capture time of the latest frame (song time base)
+        self._listening = threading.Event()
+        # Push-to-talk: record a clip and return what was said. Tests replace it.
+        self.hear: Callable[[], str] = self._hear
+        if song is not None:
+            self._load_song(song)
         if record_dir is not None:
             self._start_recording(record_dir)
 
@@ -150,7 +175,9 @@ class LiveApp:
         pose = self._track(frame, hands)
         onsets = tuple(self.dev.mic.drain()) if self.dev.mic is not None else ()
         self._onsets.extend(o.t for o in onsets)
-        inp = FrameInput(frame.t, t0, pose, hands, onsets)
+        self._frame_t = frame.t
+        song_state, chords = self._song_step(frame.t)
+        inp = FrameInput(frame.t, t0, pose, hands, onsets, chords)
         events = self.pipeline.step(inp)
         snap = self.pipeline.snapshot()
 
@@ -177,6 +204,8 @@ class LiveApp:
             self._status(t0),
             cal_view,
             track_points=self.dev.tracker.points.copy(),
+            song=self.player,
+            song_state=song_state,
         )
         with self._view_lock:
             self._view = view
@@ -227,6 +256,47 @@ class LiveApp:
         cfg = self.cfg.with_overrides({"gate": {key: not getattr(self.cfg.gate, key)}})
         self._rebuild(cfg, self.calibration)
         self._set_message(f"gate: {gate_mode(cfg)}")
+
+    def toggle_song(self) -> None:
+        """SPACE: start the loaded song (or play it again), or stop it."""
+        p = self.player
+        if p is None:
+            self._set_message('no song loaded: press s and say "let\'s play ..."')
+        elif p.started and not self._song_done():
+            p.stop()
+            self._set_message("song stopped: SPACE to start again")
+        else:
+            self._song_start = True
+
+    def leave_song(self) -> None:
+        if self.player is not None:
+            self.player = None
+            self._set_message("song mode off: back to the default chords")
+
+    def listen(self) -> None:
+        """Push-to-talk: record and transcribe on a worker thread, then act on it."""
+        if self._listening.is_set():
+            return
+        self._listening.set()
+        self._set_message(f"listening for {self.cfg.song.listen_s:g} s ...")
+        threading.Thread(target=self._listen_worker, name="voice", daemon=True).start()
+
+    def handle_heard(self, text: str) -> None:
+        """Act on a transcribed request (any thread; session changes go via commands)."""
+        cmd = parse_command(text)
+        if cmd.kind == "start":
+            self.command(lambda: self._start_if_idle())
+        elif cmd.kind == "stop":
+            self.command(lambda: self.player and self.player.stop())
+        elif cmd.kind == "restart":
+            self.command(self._restart_song)
+        else:
+            query = cmd.query or cmd.text
+            match = find_song(query, self.song_dir, self.cfg.song.match_min_score)
+            if match is None:
+                self.command(lambda: self._set_message(f'heard "{text}": no song file matches'))
+            else:
+                self.command(lambda: self._load_song(match.song))
 
     def stop_recording(self) -> Path | None:
         rec, self.recorder = self.recorder, None
@@ -317,6 +387,8 @@ class LiveApp:
             ord("g"): lambda: self.toggle_gate("grip"),
             ord("m"): lambda: self.toggle_gate("mic"),
             ord("h"): lambda: self._set_message(HELP),
+            ord(" "): self.toggle_song,
+            ord("x"): self.leave_song,
         }
         try:
             while not self.stop_event.is_set():
@@ -336,6 +408,8 @@ class LiveApp:
                     relock()
                 if key == ord("d"):
                     debug[0] = not debug[0]
+                if key == ord("s"):
+                    self.listen()
                 if key in keys:
                     self.command(keys[key])
                 if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
@@ -345,6 +419,66 @@ class LiveApp:
             cv2.destroyAllWindows()
 
     # -- helpers ------------------------------------------------------------------------
+
+    def _song_step(self, t: float):
+        """This frame's song state, and the chord set to send if it changed."""
+        p = self.player
+        if p is None:
+            if self._song_sent is None:
+                return None, None
+            self._song_sent = None  # song left: back to the configured chords
+            return None, self.cfg.chords.chords
+        if self._song_start:
+            self._song_start = False
+            p.start(t)
+        state = p.state(t)
+        if state.chords == self._song_sent:
+            return state, None
+        self._song_sent = state.chords
+        return state, state.chords
+
+    def _song_done(self) -> bool:
+        p = self.player
+        return p is not None and p.state(self._frame_t).phase == "done"
+
+    def _start_if_idle(self) -> None:
+        if self.player is None:
+            self._set_message("no song loaded yet")
+        elif not self.player.started or self._song_done():
+            self._song_start = True
+
+    def _restart_song(self) -> None:
+        if self.player is not None:
+            self.player.stop()
+            self._song_start = True
+
+    def _load_song(self, song: Song) -> None:
+        try:
+            player = SongPlayer(song, self.cfg)
+        except ValueError as exc:  # an unknown chord or an empty sheet
+            self._set_message(f"{song.title}: {exc}")
+            return
+        self.player = player
+        self._song_sent = None
+        by = f" by {song.artist}" if song.artist else ""
+        notes = f" ({'; '.join(song.notes)})" if song.notes else ""
+        self._set_message(f"{song.title}{by} loaded{notes}")
+
+    def _hear(self) -> str:
+        clip = record_clip(self.cfg.song.listen_s, self.cfg.mic.device)
+        return transcribe(wav_bytes(clip), self.cfg.song)
+
+    def _listen_worker(self) -> None:
+        try:
+            text = self.hear()
+        except (VoiceError, OSError) as exc:
+            msg = str(exc)
+            self.command(lambda: self._set_message(msg))
+        else:
+            self.command(lambda: self._set_message(f'heard "{text}"'))
+            self.handle_heard(text)
+        finally:
+            self._listening.clear()
 
     def _track(self, frame: Frame, hands: tuple[HandObs, ...]) -> RacketPose:
         tracker = self.dev.tracker
@@ -379,6 +513,7 @@ class LiveApp:
             path, self.cfg, self.calibration, video=self.cfg.replay.video, mic=self.dev.tee
         )
         self.recorder.session.meta["pose_source"] = "flow"
+        self._song_sent = None  # the recording's first frame carries the song's chords
         self._set_message(f"recording to {path}")
 
     def _finish_calibration(self) -> None:
@@ -400,6 +535,9 @@ class LiveApp:
         part starts in ``<dir>-2``, ``<dir>-3``, ..."""
         self.cfg, self.calibration = cfg, calibration
         self.pipeline = Pipeline(cfg, calibration)
+        self._song_sent = None  # a new pipeline starts on the configured chords
+        if self.player is not None:
+            self.player = self._replan(self.player)
         rec = self.recorder
         if rec is None:
             return
@@ -413,6 +551,13 @@ class LiveApp:
             n += 1
         self._start_recording(rec.path.parent / f"{base}-part{n}")
         self._set_message(f"settings changed: saved {done}, recording continues")
+
+    def _replan(self, player: SongPlayer) -> SongPlayer:
+        """The same song under new settings, keeping its start time."""
+        fresh = SongPlayer(player.song, self.cfg)
+        if player.start_time is not None:
+            fresh.start(player.start_time)
+        return fresh
 
     def _status(self, now: float) -> Status:
         audio, mic = self.dev.audio, self.dev.mic
@@ -462,6 +607,8 @@ def _cmd_play(args: argparse.Namespace) -> int:
     cfg = load_config(args.config) if args.config else load_config()
     if args.mic is not None:
         cfg = cfg.with_overrides({"gate": {"mic": args.mic}})
+    if args.speed is not None:
+        cfg = cfg.with_overrides({"song": {"speed": args.speed}})
     cal_path = Path(args.calibration) if args.calibration else home_dir() / "calibration.toml"
     cal = load_calibration(cal_path)
     calibrate = args.calibrate or (
@@ -477,6 +624,13 @@ def _cmd_play(args: argparse.Namespace) -> int:
     except HandModelMissingError as exc:
         print(f"{exc}\nRun: uv run racketguitar fetch-model", file=sys.stderr)
         return 2
+    song = None
+    if args.song:
+        match = find_song(args.song, None, cfg.song.match_min_score)
+        if match is None:
+            print(f"no song sheet matches {args.song!r} in {songs_dir()}", file=sys.stderr)
+            return 2
+        song = match.song
     app = LiveApp(
         cfg,
         cal,
@@ -484,6 +638,7 @@ def _cmd_play(args: argparse.Namespace) -> int:
         calibrate=calibrate,
         calibration_path=cal_path,
         record_dir=Path(args.record) if args.record else None,
+        song=song,
     )
     try:
         app.run(display=not args.no_display, seconds=args.seconds)
@@ -519,6 +674,42 @@ def _cmd_replay(args: argparse.Namespace) -> int:
         wavfile.write(args.wav, session_cfg.audio.sample_rate, audio)
         print(f"wrote {args.wav}")
     return 0 if result.matches or cfg is not None else 1
+
+
+def _cmd_song(args: argparse.Namespace) -> int:
+    """Print how a song sheet will play: timing, chords per line and handle labels."""
+    cfg = load_config(args.config) if args.config else load_config()
+    if args.speed is not None:
+        cfg = cfg.with_overrides({"song": {"speed": args.speed}})
+    match = find_song(args.query, None, cfg.song.match_min_score)
+    if match is None:
+        print(f"no song sheet matches {args.query!r} in {songs_dir()}", file=sys.stderr)
+        return 2
+    song = match.song
+    p = SongPlayer(song, cfg)
+    spb = p.seconds_per_beat
+    print(f"{song.title} by {song.artist or '?'}  ({song.path})")
+    print(
+        f"{song.tempo:g} BPM x {p.speed:.0%} = {p.bpm:.0f} BPM, {song.beats_per_bar}/4, "
+        f"capo {song.capo}, {p.timeline.total_beats * spb:.0f} s"
+    )
+    for note in song.notes:
+        print(f"  note: {note}")
+    section = None
+    for i, line in enumerate(p.timeline.lines):
+        if line.section != section:
+            section = line.section
+            print(f"[{section or '-'}]")
+        chords = " ".join(f"{c.name}({c.beats:g})" for c in p.timeline.chords if c.line == i)
+        text = "" if args.no_lyrics else f"  {line.text}"
+        print(f"  {line.beat * spb:6.1f}s  {chords or '(holds)':28s}{text}")
+    print("handle sections, head -> butt:")
+    for change in p.plan:
+        when = "start" if change.beat == float("-inf") else f"{change.beat * spb:.1f}s"
+        print(f"  {when:>7}  {'  '.join(change.slots)}")
+    for name, notes in p.voicings.items():
+        print(f"  {name:6s} {notes}")
+    return 0
 
 
 def _cmd_fetch_model(args: argparse.Namespace) -> int:
@@ -557,6 +748,12 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--from-mic", action="store_true", help="re-detect onsets from mic.wav")
     rp.add_argument("--wav", help="render the replayed notes to this WAV")
 
+    sg = sub.add_parser("song", help="show how a song sheet will play")
+    sg.add_argument("query", help="song title or sheet file")
+    sg.add_argument("--config")
+    sg.add_argument("--speed", type=float, help="fraction of the sheet's tempo")
+    sg.add_argument("--no-lyrics", action="store_true", help="chords and timing only")
+
     fm = sub.add_parser("fetch-model", help="download the MediaPipe hand model")
     fm.add_argument("--config")
     fm.add_argument("--force", action="store_true")
@@ -577,6 +774,8 @@ def _play_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--no-display", action="store_true", help="no window (for smoke tests)")
     p.add_argument("--seconds", type=float, help="stop after this many seconds")
+    p.add_argument("--song", help="load a song sheet (title or file) in song mode")
+    p.add_argument("--speed", type=float, help="song speed, fraction of its tempo")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -588,6 +787,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "play": _cmd_play,
         "calibrate": _cmd_play,
         "replay": _cmd_replay,
+        "song": _cmd_song,
         "fetch-model": _cmd_fetch_model,
     }[command]
     try:

@@ -59,6 +59,40 @@ mic = true
 master_gain = 0.6
 ```
 
+## Song mode
+
+Put chord sheets in `~/.racketguitar/songs/` as `.txt` or `.cho` files. Either layout
+works: ChordPro (`[Am]Folding paper [D]boats`) or chords on their own line above the lyric, as
+chord sites show them. Add a header:
+
+```
+{title: Take On Me}
+{artist: a-ha}
+{tempo: 169}
+{capo: 2}
+```
+
+A chord lasts one bar unless written `Am*2` (two bars) or `Am*0.5`; `{chord_bars: 0.5}`
+changes the default for the whole sheet. Songs play at 70% of their tempo
+(`--speed 1.0` for full speed). Check the timing before playing:
+
+```bash
+uv run racketguitar song "take on me"
+```
+
+Then play it. Press `s` and say "let's play take on me" (needs `ELEVENLABS_API_KEY`), or
+pass `--song`:
+
+```bash
+uv run racketguitar --song "take on me"
+```
+
+A card says when the song is ready, and the handle shows its first chords, with the one
+to grip highlighted in green. Say "start" (press `s` first) or press SPACE for a 3-2-1-GO
+count-in. The lyrics then scroll with their chords, and the handle sections relabel
+when the song needs more than four chords. SPACE stops, "from the top" restarts, `x`
+leaves song mode.
+
 ## Record and replay
 
 `r` (or `--record DIR`) saves a session: poses, hands, onsets, notes and mic audio (a
