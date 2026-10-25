@@ -54,8 +54,14 @@ __all__ = [
 FORMAT_VERSION = 1
 VIDEO_FOURCC = "FFV1"  # lossless: frames are exactly what the detectors saw
 # Settings that old sessions recorded but this version no longer has (the marker
-# tracker was removed); dropped on load so old recordings still replay.
-_RETIRED = {"markers": None, "filters": ("marker_min_cutoff", "marker_beta")}
+# tracker was removed; the symmetric grip hysteresis became grip_arm_below and
+# grip_release_above); dropped on load so old recordings still load. A dropped
+# setting's replacement takes its default, so those sessions replay with today's gate.
+_RETIRED = {
+    "markers": None,
+    "filters": ("marker_min_cutoff", "marker_beta"),
+    "gate": ("grip_hysteresis",),
+}
 _KINDS = ("on", "damp", "all_off")
 
 

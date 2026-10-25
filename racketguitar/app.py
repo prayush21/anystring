@@ -486,7 +486,7 @@ class LiveApp:
         if self._pending_lock is not None:
             tip, throat, grip, butt = self._pending_lock
             self._pending_lock = None
-            pose = tracker.lock(frame.image, tip, throat, frame.t, exclude)
+            pose = tracker.lock(frame.image, tip, throat, frame.t, exclude, butt=butt)
             if pose.visible:
                 # The grip and butt clicks place the chord sections on the grip only.
                 near, far = (

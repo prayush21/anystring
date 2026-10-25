@@ -97,7 +97,8 @@ def grip_thresholds(
     calibration: Calibration | None = None, cfg: GateConfig | None = None
 ) -> tuple[float, float]:
     """``(close_below, open_above)`` from the calibrated closed/open scores, else the
-    ``GateConfig`` defaults (template pick grip ~0.16, open hand ~0.80).
+    ``GateConfig`` defaults (template pick grip ~0.16, open hand ~0.80): the
+    ``grip_arm_below`` and ``grip_release_above`` fractions of the way from closed to open.
 
     A calibration whose closed score is not below its open score, or that was recorded
     with another ``GRIP_SCORE_VERSION``, is ignored.
@@ -109,8 +110,7 @@ def grip_thresholds(
         if cc is not None and oo is not None and cc < oo:
             c, o = cc, oo
     span = o - c
-    h = cfg.grip_hysteresis
-    return c + (0.5 - h) * span, c + (0.5 + h) * span
+    return c + cfg.grip_arm_below * span, c + cfg.grip_release_above * span
 
 
 def calibrate_grip(
@@ -146,7 +146,9 @@ class GripClassifier:
 
     Each frame votes ``"closed"``, ``"open"`` (with hysteresis around the current state)
     or ``"unknown"`` (no hand). The state flips only after ``hold_frames`` consecutive
-    votes for the same new state, so a single bad frame never flips it.
+    votes for the same new state, so a single bad frame never arms the gate. Releasing
+    a closed grip is the exception: it takes ``release_frames`` (default 1), so a hand
+    opening for the return stroke disarms before that stroke reaches the strings.
     """
 
     def __init__(
@@ -154,8 +156,10 @@ class GripClassifier:
         hold_frames: int = 2,
         calibration: Calibration | None = None,
         cfg: GateConfig | None = None,
+        release_frames: int = 1,
     ) -> None:
         self.hold_frames = max(1, hold_frames)
+        self.release_frames = max(1, release_frames)
         self.close_below, self.open_above = grip_thresholds(calibration, cfg)
         self.state: GripState = "unknown"
         self.score: float | None = None  # latest score, None when no hand
@@ -180,7 +184,8 @@ class GripClassifier:
             self._count += 1
         else:
             self._pending, self._count = vote, 1
-        if self._count >= self.hold_frames:
+        releasing = self.state == "closed" and vote == "open"
+        if self._count >= (self.release_frames if releasing else self.hold_frames):
             self.state, self._pending, self._count = vote, None, 0
         return self.state
 
@@ -276,7 +281,9 @@ class Gate:
             if cal.detect_to_audio_ms is not None
             else self.cfg.output_latency_ms
         )
-        self.classifier = GripClassifier(self.cfg.grip_hold_frames, cal, self.cfg)
+        self.classifier = GripClassifier(
+            self.cfg.grip_hold_frames, cal, self.cfg, self.cfg.grip_release_frames
+        )
         self.window = OnsetWindow(
             self.cfg.onset_lookback_ms,
             self.cfg.onset_hold_ms,
