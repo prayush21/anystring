@@ -26,7 +26,6 @@ OWNERS = {
     "racketguitar/play/__init__.py": "WP0",
     "racketguitar/capture/camera.py": "WP1",
     "racketguitar/vision/": "WP1",
-    "tools/print_markers.py": "WP1",
     "tests/vision/": "WP1",
     "racketguitar/geometry/": "WP2",
     "racketguitar/play/strum.py": "WP2",

@@ -2,6 +2,15 @@
 
 Oct 24, 2026 · @PMD
 
+> **Amendment (Oct 24, 2026): racket tracking is markerless.** The printed ArUco
+> markers described below were built, then removed after on-device testing. Instead,
+> the player clicks the racket four times in the window (the top of the head, the
+> throat, where the grip starts, and the butt), and the app follows it by optical flow
+> on the head's rim (`racketguitar/vision/flow.py`). The four chord sections span the
+> grip only. Wherever this document mentions markers, marker images, printing markers,
+> the marker PDF tool or marker-based replay, read it as superseded. `CLAUDE.md`
+> describes the current implementation.
+
 ## Executive summary
 
 Racket Guitar turns a tennis racket into a playable guitar using only a MacBook's camera and microphone. The user tapes two printed markers to the racket, the app overlays virtual strings on the string bed, and strumming the real strings plays guitar notes in under 50 ms.

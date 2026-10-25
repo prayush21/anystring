@@ -1,10 +1,8 @@
 """Sanity checks on the fake data, so work packages can trust it as ground truth."""
 
-import cv2
 import numpy as np
 import pytest
 
-from racketguitar.config import MarkerConfig
 from tests.fakes import (
     SR,
     ScriptedGate,
@@ -17,7 +15,6 @@ from tests.fakes import (
     mix,
     px_to_uv,
     read_wav,
-    render_marker_scene,
     room_noise,
     speaker_bleed,
     strum_track,
@@ -103,29 +100,6 @@ def test_wav_round_trip(tmp_path):
     write_wav(tmp_path / "b.wav", x)
     y, sr = read_wav(tmp_path / "b.wav")
     assert sr == SR and np.allclose(x, y)
-
-
-@pytest.mark.parametrize(
-    "kw",
-    [
-        dict(),
-        dict(angle_deg=-60.0, head_len_px=220.0),
-        dict(angle_deg=-120.0, tilt_across_deg=30.0, tilt_along_deg=15.0),
-        dict(blur_sigma=1.2, noise_std=4.0),
-    ],
-)
-def test_marker_scene_is_detectable_and_truthful(kw):
-    cfg = MarkerConfig()
-    scene = render_marker_scene(cfg=cfg, **kw)
-    det = cv2.aruco.ArucoDetector(
-        cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, cfg.dictionary)),
-        cv2.aruco.DetectorParameters(),
-    )
-    corners, ids, _ = det.detectMarkers(scene.image)
-    assert ids is not None and sorted(ids.ravel().tolist()) == [cfg.tip_id, cfg.throat_id]
-    for c, i in zip(corners, ids.ravel(), strict=True):
-        assert np.abs(c[0] - scene.corners[int(i)]).max() < 2.0
-    assert np.isclose(np.hypot(*scene.pose.u), 1.0)
 
 
 def test_scripted_gate_records_calls():

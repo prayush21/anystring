@@ -11,7 +11,7 @@ from racketguitar.config import Calibration, Config
 from racketguitar.pipeline import FrameInput, Pipeline
 from racketguitar.replay.harness import compare_events, render_session, replay, stream_onsets
 from racketguitar.replay.record import Recorder, TeeDetector, load_session
-from tests.fakes import brush_strokes, mix, render_marker_scene, room_noise
+from tests.fakes import brush_strokes, mix, render_racket, room_noise
 from tests.integration.song import T0, expected_note_count, frames
 
 PROC_LAG = 0.03  # processing starts this long after capture
@@ -119,24 +119,22 @@ def test_stream_onsets_reports_after_the_block_ends():
         assert onset.t < reported <= onset.t + 0.02
 
 
-def test_video_replay_follows_dropped_frames(tmp_path, cfg):
+def test_debug_video_is_lossless_and_flags_dropped_frames(tmp_path, cfg):
+    from racketguitar.replay.harness import video_frames
+
     song, _ = frames(cfg)
-    images = [render_marker_scene(**f.scene).image for f in song]
+    images = [render_racket(**f.scene).image for f in song[:30]]
     for i in range(5, len(images), 7):  # frames the writer "dropped"
         images[i] = None
-    record_song(cfg, tmp_path / "s", images=images)
+    record_song(cfg, tmp_path / "s", images=images + [None] * (len(song) - len(images)))
     s = load_session(tmp_path / "s")
     assert s.video_path is not None and s.video_path.exists()
-    assert [f.in_video for f in s.frames] == [img is not None for img in images]
-    a = replay(s, markers_from="video")
-    b = replay(s, markers_from="video")
-    assert a.events == b.events
-    for f, rec, img in zip(a.frames, s.frames, images, strict=True):
-        if img is None:
-            assert f.pose == rec.inp.pose  # dropped frames keep the recorded pose
-        else:
-            assert np.hypot(*np.subtract(f.pose.origin, rec.inp.pose.origin)) < 1.5
-    assert sum(e.kind == "on" for e in a.events) == expected_note_count(cfg)
+    kept = [img for img in images if img is not None]
+    assert [f.in_video for f in s.frames[: len(images)]] == [img is not None for img in images]
+    video = list(video_frames(s.video_path))
+    assert len(video) == len(kept)
+    assert all(np.array_equal(a, b) for a, b in zip(video, kept, strict=True))
+    assert replay(s).matches
 
 
 def test_compare_events_and_render(tmp_path, cfg):

@@ -12,8 +12,8 @@ from racketguitar.app import Devices, LiveApp, build_parser, gate_mode, main
 from racketguitar.capture.camera import Frame
 from racketguitar.config import Calibration, Config, load_calibration, load_config, save_config
 from racketguitar.replay.harness import replay
-from racketguitar.vision.markers import MarkerTracker
-from tests.fakes import hand_obs, make_pose, place_hand, render_marker_scene, uv_to_px
+from racketguitar.vision.flow import FlowTracker
+from tests.fakes import hand_obs, make_pose, place_hand, render_racket, uv_to_px
 from tests.fakes.hands import INDEX_TIP
 from tests.integration.song import expected_note_count, frames
 
@@ -79,7 +79,11 @@ class FakeAudio:
 @functools.cache
 def _song_images() -> tuple[np.ndarray, ...]:
     song, _ = frames(Config())
-    return tuple(render_marker_scene(**f.scene).image for f in song)
+    return tuple(render_racket(**f.scene).image for f in song)
+
+
+def tracker(cfg: Config) -> FlowTracker:
+    return FlowTracker(cfg.tracking, head_half_width=cfg.strings.head_half_width)
 
 
 def song_devices(cfg: Config, on_done=lambda: None) -> tuple[Devices, FakeAudio]:
@@ -89,22 +93,41 @@ def song_devices(cfg: Config, on_done=lambda: None) -> tuple[Devices, FakeAudio]
     audio = FakeAudio()
     devices = Devices(
         camera=FakeCamera(items, on_done),
-        markers=MarkerTracker(cfg.markers, cfg.filters),
         hands=FakeHands({f.t: f.hands for f in song}),
+        tracker=tracker(cfg),
         audio=audio,
     )
     return devices, audio
 
 
+def lock_on(app: LiveApp, pose, cfg: Config) -> None:
+    """The four clicks a player makes, at the racket's true points: head top, throat,
+    grip start and butt (the grip clicks at the configured chord span)."""
+    o, u, h = np.asarray(pose.origin), np.asarray(pose.u), pose.head_len
+    app.request_lock(
+        o + u * h, o, o + u * cfg.chords.handle_u_near * h, o + u * cfg.chords.handle_u_far * h
+    )
+
+
+def lock_song(app: LiveApp, cfg: Config) -> None:
+    song, _ = frames(cfg)
+    lock_on(app, song[0].pose, cfg)
+
+
 def test_live_session_plays_records_and_replays(tmp_path, cfg):
-    """The end-to-end check: rendered camera frames -> markers -> engine -> audio,
-    recorded with lossless video, then replayed headlessly from data and from video."""
+    """The end-to-end check: rendered racket frames -> click lock -> optical-flow tracking
+    -> engine -> audio, recorded (with debug video), then replayed headlessly."""
     cfg = cfg.with_overrides({"replay": {"video": True}})
     holder: dict[str, LiveApp] = {}
     devices, audio = song_devices(cfg, on_done=lambda: holder["app"].stop_event.set())
     app = LiveApp(cfg, Calibration(), devices, record_dir=tmp_path / "take")
     holder["app"] = app
+    lock_song(app, cfg)
     app.run(display=False, seconds=60)
+
+    # The grip and butt clicks set the chord sections.
+    assert app.cfg.chords.handle_u_near == pytest.approx(cfg.chords.handle_u_near, abs=0.01)
+    assert app.cfg.chords.handle_u_far == pytest.approx(cfg.chords.handle_u_far, abs=0.01)
 
     assert devices.camera.started and devices.camera.stopped and devices.hands.closed
     on = [e for e in audio.events if e.kind == "on"]
@@ -114,11 +137,7 @@ def test_live_session_plays_records_and_replays(tmp_path, cfg):
     first = replay(tmp_path / "take")
     assert first.matches, first.mismatches
     assert first.events == audio.events
-    # Re-tracking from raw detections, and re-detecting on the lossless video (with
-    # recorded detections standing in for frames the writer dropped), both reproduce it.
-    for source in ("corners", "video"):
-        again = replay(tmp_path / "take", markers_from=source)
-        assert again.matches, (source, again.mismatches)
+    assert (tmp_path / "take" / "video.mkv").exists()
 
 
 def test_vision_error_reaches_the_caller(cfg):
@@ -132,11 +151,11 @@ def test_vision_error_reaches_the_caller(cfg):
 
 def _still_frames(cfg, shape: str, t0: float, n: int, fps: float = 30.0):
     """A still racket with the strumming hand held over the strings in ``shape``."""
-    scene = render_marker_scene()
+    scene = render_racket()
     out = []
     for k in range(n):
         t = t0 + k / fps
-        pose = make_pose(t, origin=scene.pose.origin, angle_deg=-90.0, head_len=scene.pose.head_len)
+        pose = make_pose(t, origin=tuple(scene.throat), angle_deg=-90.0, head_len=300.0)
         tip = uv_to_px(pose, 0.5, 0.45)  # parked beyond the high-E side
         hand = hand_obs(t, place_hand(shape, tip, anchor=INDEX_TIP, palm_px=80.0))
         out.append((Frame(scene.image, t, k), (hand,)))
@@ -149,12 +168,13 @@ def test_calibration_through_the_app(tmp_path, cfg):
     audio = FakeAudio()
     devices = Devices(
         camera=FakeCamera([]),
-        markers=MarkerTracker(cfg.markers, cfg.filters),
         hands=FakeHands({f.t: h for f, h in seq}),
+        tracker=tracker(cfg),
         audio=audio,
     )
     cal_path = tmp_path / "cal.toml"
     app = LiveApp(cfg, Calibration(), devices, calibrate=True, calibration_path=cal_path)
+    lock_on(app, make_pose(origin=tuple(render_racket().throat), head_len=300.0), cfg)
     views = [app.process(f) for f, _ in seq]
     assert views[0].calibration is not None
     assert app.flow is None, "calibration should have finished"
@@ -204,6 +224,7 @@ def test_cli_replay(tmp_path, cfg, capsys):
     holder: dict[str, LiveApp] = {}
     devices, _ = song_devices(cfg, on_done=lambda: holder["app"].stop_event.set())
     holder["app"] = LiveApp(cfg, Calibration(), devices, record_dir=tmp_path / "take")
+    lock_song(holder["app"], cfg)
     holder["app"].run(display=False, seconds=60)
     with pytest.raises(SystemExit) as exit_:
         main(["replay", str(tmp_path / "take"), "--wav", str(tmp_path / "out.wav")])
@@ -235,6 +256,7 @@ def test_vision_thread_publishes_views(cfg):
     done = threading.Event()
     devices, _ = song_devices(cfg, on_done=done.set)
     app = LiveApp(cfg, Calibration(), devices)
+    lock_song(app, cfg)
     t = threading.Thread(target=app.vision_loop)
     t.start()
     done.wait(30)
@@ -242,48 +264,6 @@ def test_vision_thread_publishes_views(cfg):
     t.join(5)
     view = app.latest_view()
     assert view is not None and view.snapshot.visible and view.status.vision_ms is not None
-
-
-def test_markerless_session_locks_tracks_and_plays(tmp_path, cfg):
-    """No markers: lock with three clicks, follow the racket by optical flow, play the
-    song, then replay the recording from its recorded poses."""
-    from racketguitar.vision.flow import FlowTracker
-    from tests.fakes.scenes import render_racket
-
-    song, _ = frames(cfg)
-    items = []
-    for i, f in enumerate(song):
-        u = np.asarray(f.pose.u)
-        centre = np.asarray(f.pose.origin) + 0.5 * f.pose.head_len * u
-        angle = float(np.degrees(np.arctan2(u[1], u[0])))
-        scene = render_racket(center_px=tuple(centre), angle_deg=angle, head_len_px=f.pose.head_len)
-        items.append(Frame(scene.image, f.t, i))
-    first = song[0].pose
-    tip = np.asarray(first.origin) + np.asarray(first.u) * first.head_len
-    o, u = np.asarray(first.origin), np.asarray(first.u)
-    grip = o - u * 0.15 * first.head_len  # where the song's chord sections start
-    butt = o - u * first.head_len  # u = -1
-    audio = FakeAudio()
-    holder: dict[str, LiveApp] = {}
-    devices = Devices(
-        camera=FakeCamera(items, on_done=lambda: holder["app"].stop_event.set()),
-        markers=MarkerTracker(cfg.markers, cfg.filters),
-        hands=FakeHands({f.t: f.hands for f in song}),
-        audio=audio,
-        tracker=FlowTracker(cfg.markers, head_half_width=cfg.strings.head_half_width),
-    )
-    app = LiveApp(cfg, Calibration(), devices, record_dir=tmp_path / "take")
-    holder["app"] = app
-    app.request_lock(tip, first.origin, grip, butt)
-    app.run(display=False, seconds=60)
-
-    assert app.cfg.chords.handle_u_near == pytest.approx(-0.15, abs=0.01)
-    assert app.cfg.chords.handle_u_far == pytest.approx(-1.0, abs=0.01)
-    on = [e for e in audio.events if e.kind == "on"]
-    assert len(on) == expected_note_count(cfg)
-    assert replay(tmp_path / "take").matches
-    with pytest.raises(ValueError, match="markerless"):
-        replay(tmp_path / "take", markers_from="video")
 
 
 class SlowHands(FakeHands):

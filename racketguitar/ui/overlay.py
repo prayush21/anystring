@@ -67,12 +67,10 @@ class View:
     image: np.ndarray  # un-mirrored BGR camera frame
     t: float
     pose: RacketPose
-    corners: dict[int, np.ndarray]  # markers found this frame, pixel corners
     snapshot: EngineSnapshot
     status: Status = field(default_factory=Status)
     calibration: CalibrationView | None = None
-    track_points: np.ndarray | None = None  # markerless: features being followed
-    markerless: bool = False
+    track_points: np.ndarray | None = None  # features the racket tracker follows
 
 
 class Overlay:
@@ -88,15 +86,12 @@ class Overlay:
         prompt: str | None = None,
         debug: bool = False,
     ) -> np.ndarray:
-        """``clicks`` (frame pixels) and ``prompt`` show a markerless lock in progress;
+        """``clicks`` (frame pixels) and ``prompt`` show a racket lock in progress;
         ``debug`` adds the tracked points and the live grip score."""
         img = cv2.flip(view.image, 1) if self.cfg.ui.mirror else view.image.copy()
         self._width = img.shape[1]
         snap = view.snapshot
-        if view.markerless:
-            self._markerless(img, view, clicks, prompt, debug)
-        else:
-            self._markers(img, view)
+        self._lock(img, view, clicks, prompt, debug)
         if snap.frame is not None:
             self._racket(img, snap)
             self._handle(img, snap)
@@ -105,6 +100,9 @@ class Overlay:
         self._grip_badge(img, snap)
         self._chord(img, snap)
         self._readout(img, view.status, snap)
+        if debug and view.track_points is not None and len(view.track_points):
+            for x, y in self.px(view.track_points):  # on top of the string band
+                cv2.circle(img, (int(x), int(y)), 2, BGR["ok"], -1)
         if debug or view.calibration is not None:  # calibration shows the score live
             self._grip_meter(img, view.status)
         self._meter(img, view.status, view.t)
@@ -123,22 +121,7 @@ class Overlay:
 
     # -- layers -------------------------------------------------------------------------
 
-    def _markers(self, img: np.ndarray, view: View) -> None:
-        names = {self.cfg.markers.tip_id: "tip", self.cfg.markers.throat_id: "throat"}
-        lost = []
-        for marker_id, name in names.items():
-            c = view.corners.get(marker_id)
-            if c is None:
-                lost.append(name)
-                continue
-            cv2.polylines(img, [self.px(c)], True, BGR["ok"], 2, cv2.LINE_AA)
-        if len(lost) == len(names):
-            msg = "no markers found: tape the printed markers.pdf squares on the racket"
-            _text(img, msg, (16, img.shape[0] - 16), 0.6, BGR["lost"])
-        elif lost:
-            _text(img, f"marker lost: {', '.join(lost)}", (16, img.shape[0] - 16), 0.6, BGR["lost"])
-
-    def _markerless(
+    def _lock(
         self,
         img: np.ndarray,
         view: View,
@@ -146,9 +129,6 @@ class Overlay:
         prompt: str | None,
         debug: bool,
     ) -> None:
-        if debug and view.track_points is not None and len(view.track_points):
-            for x, y in self.px(view.track_points):
-                cv2.circle(img, (int(x), int(y)), 2, BGR["ok"], -1)
         for i, c in enumerate(clicks):
             p = tuple(int(v) for v in self.px(np.array(c)))
             cv2.circle(img, p, 8, BGR["accent"], 2, cv2.LINE_AA)

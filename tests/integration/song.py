@@ -53,7 +53,7 @@ class SongFrame:
     t: float
     pose: RacketPose
     hands: tuple[HandObs, ...]
-    scene: dict  # render_marker_scene kwargs giving this pose
+    scene: dict  # tests.fakes.render_racket kwargs giving this pose
     armed: bool  # strumming hand in a pick grip
 
 
@@ -64,7 +64,7 @@ def pose_at(t: float) -> tuple[RacketPose, dict]:
     centre = (640.0 + 25.0 * math.sin(0.9 * k), 380.0 + 10.0 * math.cos(1.1 * k))
     head_len = 300.0
     a = math.radians(angle)
-    # The scene is placed by the marker midpoint; the pose origin is the throat marker.
+    # The scene is placed by the head centre; the pose origin is the throat.
     origin = (centre[0] - 0.5 * head_len * math.cos(a), centre[1] - 0.5 * head_len * math.sin(a))
     pose = make_pose(t, origin=origin, angle_deg=angle, head_len=head_len)
     return pose, {"center_px": centre, "angle_deg": angle, "head_len_px": head_len}

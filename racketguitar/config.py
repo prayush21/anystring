@@ -29,7 +29,7 @@ import tomli_w
 
 __all__ = [
     "CameraConfig",
-    "MarkerConfig",
+    "TrackerConfig",
     "HandConfig",
     "FilterConfig",
     "StringsConfig",
@@ -76,13 +76,10 @@ class CameraConfig:
 
 
 @dataclass(frozen=True)
-class MarkerConfig:
-    dictionary: str = "DICT_4X4_50"  # name of a cv2.aruco predefined dictionary
-    tip_id: int = 0  # marker at the head tip
-    throat_id: int = 1  # marker at the throat
-    size_mm: float = 40.0  # printed side length, black border included
-    hold_ms: float = 150.0  # keep the last pose this long when a marker drops out
-    smooth: bool = True  # One Euro filter on marker corners
+class TrackerConfig:
+    """Markerless racket tracking (``vision/flow.py``)."""
+
+    hold_ms: float = 150.0  # keep the last pose this long when tracking is lost
 
 
 @dataclass(frozen=True)
@@ -104,8 +101,6 @@ class FilterConfig:
 
     fingertip_min_cutoff: float = 1.5  # Hz
     fingertip_beta: float = 0.05
-    marker_min_cutoff: float = 1.0  # Hz
-    marker_beta: float = 0.05  # 0.01 lagged 7.6 px at 500 px/s; 0.05 lags 2.4 px, same jitter
     d_cutoff: float = 1.0  # Hz
 
 
@@ -240,7 +235,7 @@ class ReplayConfig:
 @dataclass(frozen=True)
 class Config:
     camera: CameraConfig = field(default_factory=CameraConfig)
-    markers: MarkerConfig = field(default_factory=MarkerConfig)
+    tracking: TrackerConfig = field(default_factory=TrackerConfig)
     hands: HandConfig = field(default_factory=HandConfig)
     filters: FilterConfig = field(default_factory=FilterConfig)
     strings: StringsConfig = field(default_factory=StringsConfig)

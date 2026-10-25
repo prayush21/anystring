@@ -16,7 +16,7 @@ from tests.fakes import (
     make_pose,
     mix,
     place_hand,
-    render_marker_scene,
+    render_racket,
     room_noise,
     uv_to_px,
 )
@@ -42,8 +42,8 @@ def _mask(img: np.ndarray, colour: tuple[int, int, int], tol: int = 40) -> np.nd
 def test_overlay_draws_strings_where_the_detectors_look(cfg, mirror):
     cfg = cfg.with_overrides({"ui": {"mirror": mirror}})
     f, snap = _snapshot_mid_strum(cfg)
-    image = render_marker_scene(**f.scene).image
-    view = View(image, f.t, f.pose, {}, snap, Status(fps=60.0, latency_ms=18.0))
+    image = render_racket(**f.scene).image
+    view = View(image, f.t, f.pose, snap, Status(fps=60.0, latency_ms=18.0))
     out = Overlay(cfg).draw(view)
     assert out.shape == image.shape and out is not image
 
@@ -65,21 +65,24 @@ def test_overlay_handles_lost_racket_and_panels(cfg):
     pipe.step(FrameInput(0.0, 0.0, pose, (), ()))
     img = np.full((720, 1280, 3), 100, np.uint8)
     status = Status(mic_level=0.01, onsets=(0.95,), recording=True, message="hello")
-    cal = CalibrationView("Show both racket markers", 0.5, warning="careful")
-    out = Overlay(cfg).draw(View(img, 1.0, pose, {}, pipe.snapshot(), status, cal))
+    cal = CalibrationView("Click the racket", 0.5, warning="careful")
+    out = Overlay(cfg).draw(View(img, 1.0, pose, pipe.snapshot(), status, cal))
     assert out.shape == img.shape
     assert _mask(out, BGR["rec"], tol=10).any()  # REC dot
     assert _mask(out[150:163], BGR["accent"], tol=10).any()  # calibration progress bar
-    assert _mask(out, BGR["lost"], tol=10).any()  # "marker lost" text
+    assert _mask(out, BGR["lost"], tol=10).any()  # "racket lost" text
 
 
-def test_overlay_marks_found_markers(cfg):
-    scene = render_marker_scene()
+def test_overlay_shows_tracked_points_only_in_debug(cfg):
+    scene = render_racket()
     pipe = Pipeline(cfg)
-    pipe.step(FrameInput(0.0, 0.0, scene.pose, (), ()))
-    view = View(scene.image, 0.0, scene.pose, scene.corners, pipe.snapshot())
-    out = Overlay(cfg).draw(view)
-    assert _mask(out, BGR["ok"], tol=10).sum() > 100
+    pose = make_pose(origin=tuple(scene.throat), head_len=300.0)
+    pipe.step(FrameInput(0.0, 0.0, pose, (), ()))
+    points = np.array([[600.0, 300.0], [650.0, 320.0], [700.0, 340.0]])
+    view = View(scene.image, 0.0, pose, pipe.snapshot(), track_points=points)
+    plain, debug = Overlay(cfg).draw(view), Overlay(cfg).draw(view, debug=True)
+    green = BGR["ok"]
+    assert _mask(debug, green, tol=10).sum() > _mask(plain, green, tol=10).sum()
 
 
 # -- calibration flow -------------------------------------------------------------------
@@ -103,7 +106,7 @@ def test_calibration_flow_records_grip_scores():
     flow = CalibrationFlow(cfg, Calibration(mic_noise_floor=1e-4))
     pose = make_pose()
     t = _drive(flow, make_pose(visible=False), None, 0.0, 2.0)
-    assert flow.step == "markers" and flow.progress == 0.0
+    assert flow.step == "racket" and flow.progress == 0.0
     t = _drive(flow, pose, None, t, 1.1)
     assert flow.step == "closed"
     t = _drive(flow, pose, None, t, 1.0)  # no hand: waits

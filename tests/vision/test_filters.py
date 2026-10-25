@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from racketguitar.config import FilterConfig
-from racketguitar.vision.filters import OneEuroFilter, fingertip_filter, marker_filter
+from racketguitar.vision.filters import OneEuroFilter, fingertip_filter
 
 
 def _times(n: int, fps: float = 60.0, jitter: float = 0.0, rng=None) -> np.ndarray:
@@ -46,7 +46,7 @@ def test_dt_zero_and_backwards_are_safe():
 
 
 def test_reduces_jitter_on_static_noise(rng):
-    f = marker_filter(FilterConfig())
+    f = OneEuroFilter(1.0, 0.05)
     truth = np.array([[640.0, 360.0]] * 4)
     ts = _times(600, jitter=0.3, rng=rng)
     raw = truth + rng.normal(0, 1.0, (len(ts), 4, 2))
@@ -54,8 +54,7 @@ def test_reduces_jitter_on_static_noise(rng):
     settled = slice(120, None)
     raw_std = np.std(raw[settled] - truth)
     out_std = np.std(out[settled] - truth)
-    # marker_beta 0.05 trades a little jitter for much less lag: ~0.31x here (0.01 gave
-    # under 0.3x, but lagged 7.6 px at 500 px/s against 2.4 px now).
+    # beta 0.05 trades a little jitter for much less lag on moving input: ~0.31x here.
     assert out_std < 0.4 * raw_std
 
 
@@ -120,5 +119,3 @@ def test_config_factories():
         cfg.fingertip_beta,
         cfg.d_cutoff,
     )
-    m = marker_filter(cfg)
-    assert (m.min_cutoff, m.beta) == (cfg.marker_min_cutoff, cfg.marker_beta)

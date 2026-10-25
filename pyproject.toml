@@ -7,12 +7,11 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=1.26",
     "scipy>=1.13",
-    # mediapipe pulls in opencv-contrib-python, which ships cv2.aruco. Do not also add
-    # opencv-python: both install the same cv2 module and clobber each other.
+    # mediapipe pulls in opencv-contrib-python. Do not also add opencv-python: both
+    # install the same cv2 module and clobber each other.
     "mediapipe>=0.10.14",
     "opencv-contrib-python>=4.10",
     "sounddevice>=0.5",
-    "pillow>=10.0",
     "tomli-w>=1.0",
     "certifi>=2024.2",
 ]

@@ -1,12 +1,16 @@
 """App wiring and CLI: ``uv run racketguitar``.
 
 Threads (PID "Solution design"): the camera keeps the newest frame on its own thread;
-the vision thread here runs markers, hands, gate and engine and sends notes to the
-audio callback; the mic runs in its PortAudio callback; the main thread only draws the
+the vision thread here runs hands, racket tracking, gate and engine and sends notes to
+the audio callback; the mic runs in its PortAudio callback; the main thread only draws the
 overlay, because macOS requires GUI work there.
 
+The racket is found by clicking it (top of the head, throat, grip start, butt) and then
+followed by optical flow; there are no markers.
+
 Keys in the play window: q / Esc quit, r start/stop recording, c calibrate,
-g toggle the pick-grip gate, m toggle the mic gate (needs --mic), h help.
+g toggle the pick-grip gate, m toggle the mic gate (needs --mic), l re-lock,
+d debug view, h help.
 """
 
 from __future__ import annotations
@@ -50,7 +54,6 @@ from racketguitar.ui.calibrate import CalibrationFlow
 from racketguitar.ui.overlay import CalibrationView, Overlay, Status, View
 from racketguitar.vision.flow import FlowTracker
 from racketguitar.vision.hands import MODEL_URL, HandModelMissingError, HandTracker
-from racketguitar.vision.markers import MarkerTracker, detect_markers
 
 __all__ = ["Devices", "LiveApp", "main", "gate_mode", "model_target"]
 
@@ -84,12 +87,11 @@ class Devices:
     """What the live app drives. Tests pass fakes; ``open_devices`` builds real ones."""
 
     camera: CameraLike
-    markers: MarkerTracker
     hands: HandsLike
+    tracker: FlowTracker  # follows the racket after it is clicked
     audio: AudioOutput | None = None
     mic: MicStream | None = None
     tee: TeeDetector | None = None
-    tracker: FlowTracker | None = None  # markerless mode: follows the racket after a lock
 
 
 def gate_mode(cfg: Config) -> str:
@@ -119,12 +121,7 @@ class LiveApp:
         self.clock = clock
         self.calibration_path = calibration_path
         self.pipeline = Pipeline(cfg, calibration)
-        self.markerless = devices.tracker is not None
-        self.flow = (
-            CalibrationFlow(cfg, calibration, devices.tee, markerless=self.markerless)
-            if calibrate
-            else None
-        )
+        self.flow = CalibrationFlow(cfg, calibration, devices.tee) if calibrate else None
         self._pending_lock: tuple[np.ndarray, ...] | None = None
         self.recorder: Recorder | None = None
         self.notes = 0
@@ -150,14 +147,7 @@ class LiveApp:
             except queue.Empty:
                 break
         hands = tuple(self.dev.hands.process(frame.image, frame.t))
-        if self.dev.tracker is not None:
-            corners: dict[int, np.ndarray] = {}
-            pose = self._track_markerless(frame, hands)
-        else:
-            # Detect, then track, so the raw detections can be recorded for exact replay.
-            ids = (self.cfg.markers.tip_id, self.cfg.markers.throat_id)
-            corners = detect_markers(self.dev.markers.detector, frame.image, ids)
-            pose = self.dev.markers.update_corners(corners, frame.t)
+        pose = self._track(frame, hands)
         onsets = tuple(self.dev.mic.drain()) if self.dev.mic is not None else ()
         self._onsets.extend(o.t for o in onsets)
         inp = FrameInput(frame.t, t0, pose, hands, onsets)
@@ -176,20 +166,17 @@ class LiveApp:
             self._play(events)
             if self.recorder is not None:
                 image = frame.image if self.cfg.replay.video else None
-                self.recorder.add(inp, events, image, corners)
+                self.recorder.add(inp, events, image)
 
         self._vision_ms = (self.clock() - t0) * 1000.0
-        tracker = self.dev.tracker
         view = View(
             frame.image,
             frame.t,
             pose,
-            self.dev.markers.corners if tracker is None else corners,
             snap,
             self._status(t0),
             cal_view,
-            track_points=None if tracker is None else tracker.points.copy(),
-            markerless=tracker is not None,
+            track_points=self.dev.tracker.points.copy(),
         )
         with self._view_lock:
             self._view = view
@@ -224,12 +211,10 @@ class LiveApp:
             self._set_message(f"saved {path}")
 
     def start_calibration(self) -> None:
-        self.flow = CalibrationFlow(
-            self.cfg, self.calibration, self.dev.tee, markerless=self.markerless
-        )
+        self.flow = CalibrationFlow(self.cfg, self.calibration, self.dev.tee)
 
     def request_lock(self, tip, throat, grip, butt) -> None:
-        """Markerless mode: lock onto the racket at these clicked frame pixels (any
+        """Lock onto the racket at these clicked frame pixels (any
         thread; applied to the next frame). The chord sections span grip -> butt."""
         pts = tuple(np.asarray(p, dtype=float) for p in (tip, throat, grip, butt))
         self.command(lambda: setattr(self, "_pending_lock", pts))
@@ -308,7 +293,7 @@ class LiveApp:
         period = 1.0 / max(1, self.cfg.ui.max_fps)
         last = None
         clicks: list[tuple[float, float]] = []
-        locking = [self.markerless]  # markerless mode starts by asking for the clicks
+        locking = [True]  # the session starts by asking for the clicks
         debug = [False]  # tracked points and grip score
 
         def on_mouse(event: int, x: int, y: int, flags: int, param: object) -> None:
@@ -323,7 +308,7 @@ class LiveApp:
 
         def relock() -> None:
             clicks.clear()
-            locking[0] = self.markerless
+            locking[0] = True
 
         cv2.setMouseCallback(WINDOW, on_mouse)
         keys: dict[int, Callable[[], None]] = {
@@ -361,9 +346,8 @@ class LiveApp:
 
     # -- helpers ------------------------------------------------------------------------
 
-    def _track_markerless(self, frame: Frame, hands: tuple[HandObs, ...]) -> RacketPose:
+    def _track(self, frame: Frame, hands: tuple[HandObs, ...]) -> RacketPose:
         tracker = self.dev.tracker
-        assert tracker is not None
         exclude = [h.raw for h in hands]
         if self._pending_lock is not None:
             tip, throat, grip, butt = self._pending_lock
@@ -394,7 +378,7 @@ class LiveApp:
         self.recorder = Recorder(
             path, self.cfg, self.calibration, video=self.cfg.replay.video, mic=self.dev.tee
         )
-        self.recorder.session.meta["pose_source"] = "flow" if self.markerless else "markers"
+        self.recorder.session.meta["pose_source"] = "flow"
         self._set_message(f"recording to {path}")
 
     def _finish_calibration(self) -> None:
@@ -461,21 +445,16 @@ def model_target(cfg: Config) -> Path:
     return p if p.is_absolute() else _REPO_ROOT / p
 
 
-def open_devices(
-    cfg: Config, *, audio: bool, mic: bool, probe_tone: bool = False, markerless: bool = False
-) -> Devices:
+def open_devices(cfg: Config, *, audio: bool, mic: bool, probe_tone: bool = False) -> Devices:
     tee = TeeDetector(cfg.mic) if mic else None
     synth = ProbeTone.from_config(cfg) if probe_tone else None
     return Devices(
         camera=Camera(cfg.camera),
-        markers=MarkerTracker(cfg.markers, cfg.filters),
         hands=HandTracker(cfg.hands, cfg.filters),
         audio=AudioOutput.from_config(cfg, synth) if audio else None,
         mic=MicStream(cfg.mic, detector=tee) if mic else None,
         tee=tee,
-        tracker=FlowTracker(cfg.markers, head_half_width=cfg.strings.head_half_width)
-        if markerless
-        else None,
+        tracker=FlowTracker(cfg.tracking, head_half_width=cfg.strings.head_half_width),
     )
 
 
@@ -494,7 +473,6 @@ def _cmd_play(args: argparse.Namespace) -> int:
             audio=not args.no_audio,
             mic=cfg.gate.mic,
             probe_tone=args.probe_tone,
-            markerless=args.markerless,
         )
     except HandModelMissingError as exc:
         print(f"{exc}\nRun: uv run racketguitar fetch-model", file=sys.stderr)
@@ -526,7 +504,6 @@ def _cmd_replay(args: argparse.Namespace) -> int:
         args.session,
         config=cfg,
         onsets_from="mic" if args.from_mic else "recorded",
-        markers_from="video" if args.from_video else "corners" if args.from_corners else "recorded",
     )
     print(f"{len(result.frames)} frames, {len(result.events)} events")
     for line in result.mismatches:
@@ -578,10 +555,6 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("session", help="session directory")
     rp.add_argument("--config", help="settings to try instead of the recorded ones")
     rp.add_argument("--from-mic", action="store_true", help="re-detect onsets from mic.wav")
-    rp.add_argument(
-        "--from-corners", action="store_true", help="re-track poses from recorded detections"
-    )
-    rp.add_argument("--from-video", action="store_true", help="re-detect markers on video")
     rp.add_argument("--wav", help="render the replayed notes to this WAV")
 
     fm = sub.add_parser("fetch-model", help="download the MediaPipe hand model")
@@ -599,9 +572,6 @@ def _play_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--mic", dest="mic", action="store_true", default=None, help="mic gate on")
     p.add_argument("--no-mic", dest="mic", action="store_false", help="mic gate off")
     p.add_argument("--no-audio", action="store_true", help="no sound output")
-    p.add_argument(
-        "--markerless", action="store_true", help="no markers: click the racket, then follow it"
-    )
     p.add_argument(
         "--probe-tone", action="store_true", help="beep instead of guitar (tools/latency_probe)"
     )

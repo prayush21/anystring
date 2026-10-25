@@ -7,7 +7,7 @@ import math
 import numpy as np
 import pytest
 
-from racketguitar.config import MarkerConfig
+from racketguitar.config import TrackerConfig
 from racketguitar.vision.flow import FlowTracker
 from tests.fakes.scenes import render_racket
 
@@ -23,7 +23,7 @@ def drift(k: int, fps: float = 30.0) -> dict:
 
 def run(frames: int, *, occlude: bool = False, fps: float = 30.0):
     first = render_racket(**drift(0))
-    tr = FlowTracker(MarkerConfig(), head_half_width=first.head_half_width)
+    tr = FlowTracker(TrackerConfig(), head_half_width=first.head_half_width)
     tr.lock(first.image, first.tip, first.throat, 0.0)
     worst = 0.0
     pose = None
@@ -60,7 +60,7 @@ def test_racket_removed_leaves_the_pose_in_place():
     """A known limit: optical flow cannot tell the racket left. The static background
     keeps tracking, so the pose stays where it was (it does not drift off); re-lock."""
     first = render_racket()
-    tr = FlowTracker(MarkerConfig(), head_half_width=first.head_half_width)
+    tr = FlowTracker(TrackerConfig(), head_half_width=first.head_half_width)
     tr.lock(first.image, first.tip, first.throat, 0.0)
     empty = render_racket(show_racket=False).image
     for k in range(1, 30):
@@ -70,7 +70,7 @@ def test_racket_removed_leaves_the_pose_in_place():
 
 def test_featureless_view_times_out():
     first = render_racket()
-    tr = FlowTracker(MarkerConfig(hold_ms=150.0), head_half_width=first.head_half_width)
+    tr = FlowTracker(TrackerConfig(hold_ms=150.0), head_half_width=first.head_half_width)
     tr.lock(first.image, first.tip, first.throat, 0.0)
     blank = np.full_like(first.image, 90)  # covered lens: nothing to track
     seen = [tr.update(blank, k / 30).visible for k in range(1, 10)]

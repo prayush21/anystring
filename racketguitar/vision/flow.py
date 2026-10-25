@@ -7,9 +7,10 @@ string mesh inside is skipped because its repeating grid fools optical flow. Eac
 frame the features are followed with pyramidal Lucas-Kanade, checked forward and
 backward, and one similarity transform (rotation, uniform scale, shift) is fitted with
 RANSAC, so features on a passing hand or the background are outvoted. The transform
-moves the tip and throat, which give the same ``RacketPose`` the markers do.
+moves the tip and throat, which give the ``RacketPose``.
 
-Less precise than markers and it can drift; re-lock to reset. Works at half resolution.
+It can drift during fast moves and cannot tell the racket left the frame (the static
+background keeps tracking); re-lock to reset. Works at half resolution.
 """
 
 from __future__ import annotations
@@ -20,11 +21,15 @@ from collections.abc import Sequence
 import cv2
 import numpy as np
 
-from racketguitar.config import MarkerConfig
-from racketguitar.types import RacketPose
-from racketguitar.vision.markers import NO_POSE, pose_from_centres
+from racketguitar.config import TrackerConfig
+from racketguitar.types import RacketPose, Vec2
 
-__all__ = ["FlowTracker"]
+__all__ = ["FlowTracker", "NO_POSE", "pose_from_points"]
+
+# Before a lock, and whenever there is no racket to report.
+NO_POSE = RacketPose(
+    t=0.0, visible=False, origin=Vec2(0.0, 0.0), u=Vec2(0.0, -1.0), v=Vec2(1.0, 0.0), head_len=0.0
+)
 
 SCALE = 0.5  # track on a half-resolution copy
 MAX_POINTS = 300
@@ -44,8 +49,8 @@ _LK = dict(
 class FlowTracker:
     """Not thread-safe; vision thread only."""
 
-    def __init__(self, cfg: MarkerConfig | None = None, *, head_half_width: float = 0.4) -> None:
-        self.cfg = cfg or MarkerConfig()
+    def __init__(self, cfg: TrackerConfig | None = None, *, head_half_width: float = 0.4) -> None:
+        self.cfg = cfg or TrackerConfig()
         self.head_half_width = head_half_width
         self.reset()
 
@@ -174,10 +179,27 @@ class FlowTracker:
 
     def _pose(self, t: float) -> RacketPose:
         assert self._tip is not None and self._throat is not None
-        pose = pose_from_centres(self._throat, self._tip, t)
+        pose = pose_from_points(self._throat, self._tip, t)
         if pose is None:
             return replace_t(NO_POSE, t)
         return pose
+
+
+def pose_from_points(throat: np.ndarray, tip: np.ndarray, t: float) -> RacketPose | None:
+    """Pose from the throat and head-tip points (pixels), or None if they coincide."""
+    d = np.asarray(tip, dtype=float) - np.asarray(throat, dtype=float)
+    head_len = math.hypot(d[0], d[1])
+    if head_len < 1e-6:
+        return None
+    u = Vec2(float(d[0] / head_len), float(d[1] / head_len))
+    return RacketPose(
+        t=float(t),
+        visible=True,
+        origin=Vec2(float(throat[0]), float(throat[1])),
+        u=u,
+        v=Vec2(-u.y, u.x),
+        head_len=head_len,
+    )
 
 
 def replace_t(pose: RacketPose, t: float) -> RacketPose:

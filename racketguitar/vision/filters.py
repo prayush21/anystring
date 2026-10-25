@@ -15,7 +15,7 @@ import numpy as np
 
 from racketguitar.config import FilterConfig
 
-__all__ = ["OneEuroFilter", "fingertip_filter", "marker_filter"]
+__all__ = ["OneEuroFilter", "fingertip_filter"]
 
 
 def _alpha(dt: float, cutoff: np.ndarray | float) -> np.ndarray | float:
@@ -74,8 +74,3 @@ class OneEuroFilter:
 def fingertip_filter(cfg: FilterConfig) -> OneEuroFilter:
     """Filter for hand landmarks, using the ``fingertip_*`` settings."""
     return OneEuroFilter(cfg.fingertip_min_cutoff, cfg.fingertip_beta, cfg.d_cutoff)
-
-
-def marker_filter(cfg: FilterConfig) -> OneEuroFilter:
-    """Filter for marker corners, using the ``marker_*`` settings."""
-    return OneEuroFilter(cfg.marker_min_cutoff, cfg.marker_beta, cfg.d_cutoff)

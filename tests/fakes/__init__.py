@@ -1,7 +1,7 @@
 """Fake data for headless tests. Test-only: production code under racketguitar/ never
 imports from here.
 
-    from tests.fakes import make_pose, strum_track, brush_strokes, render_marker_scene
+    from tests.fakes import make_pose, strum_track, brush_strokes, render_racket
 """
 
 from .audio import (
@@ -18,12 +18,12 @@ from .audio import (
 from .gates import FakeClock, ScriptedGate
 from .hands import fretting_hand, hand_obs, hand_template, place_hand, strum_track
 from .racket import expected_slots_crossed, make_pose, px_to_uv, string_slots_v, uv_to_px
-from .scenes import MarkerScene, render_marker_scene
+from .scenes import RacketScene, render_racket
 
 __all__ = [
     "SR",
     "FakeClock",
-    "MarkerScene",
+    "RacketScene",
     "ScriptedGate",
     "blocks",
     "brush_strokes",
@@ -36,7 +36,7 @@ __all__ = [
     "place_hand",
     "px_to_uv",
     "read_wav",
-    "render_marker_scene",
+    "render_racket",
     "room_noise",
     "silence",
     "speaker_bleed",

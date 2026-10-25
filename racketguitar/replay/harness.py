@@ -1,18 +1,16 @@
 """Replay a recorded session through the play logic, with no camera, mic or speakers.
 
 By default the recorded observations (poses, hands, drained onsets) go straight back
-into a fresh ``Pipeline``; the result must match the recorded notes exactly. Two
-options re-run detectors on the recorded media instead:
+into a fresh ``Pipeline``; the result must match the recorded notes exactly. One option
+re-runs a detector on the recorded media instead:
 
 * ``onsets_from="mic"``: stream ``mic.wav`` block by block through a fresh
   ``OnsetDetector``, as the mic callback does. Each onset goes to the first frame whose
   processing started after the block that reported it ended, as live draining would
   (live, the callback runs a little after the block ends, so this is the earliest case).
-* ``markers_from="corners"``: re-run pose tracking (filters, hold) on the recorded raw
-  marker detections; no video needed, so it is the cheap way to try marker settings.
-* ``markers_from="video"``: re-detect markers on ``video.mkv`` (lossless, so detections
-  match live); frames the writer dropped use their recorded raw detections. Hands stay
-  as recorded: hand tracking needs the model file.
+
+Racket poses and hands always replay as recorded: the racket tracker needs the clicks
+that locked it, and hand tracking needs the model file.
 """
 
 from __future__ import annotations
@@ -32,7 +30,6 @@ from racketguitar.config import Calibration, Config
 from racketguitar.pipeline import FrameInput, Pipeline
 from racketguitar.replay.record import Session, load_session
 from racketguitar.types import NoteEvent, Onset
-from racketguitar.vision.markers import MarkerTracker, detect_markers
 
 __all__ = [
     "ReplayResult",
@@ -62,7 +59,6 @@ def replay(
     config: Config | None = None,
     calibration: Calibration | None = None,
     onsets_from: Literal["recorded", "mic"] = "recorded",
-    markers_from: Literal["recorded", "corners", "video"] = "recorded",
 ) -> ReplayResult:
     """Run ``session`` through a fresh pipeline. ``config``/``calibration`` override the
     recorded ones (to try new settings on an old take); then mismatches are expected."""
@@ -71,10 +67,6 @@ def replay(
     frames = [f.inp for f in s.frames]
     if onsets_from == "mic":
         frames = _with_mic_onsets(frames, s, cfg)
-    if markers_from != "recorded" and s.meta.get("pose_source") == "flow":
-        raise ValueError("markerless session: only its recorded poses can be replayed")
-    if markers_from != "recorded":
-        frames = _retracked(frames, s, cfg, use_video=markers_from == "video")
     pipe = Pipeline(cfg, calibration or s.calibration)
     per_frame = pipe.run(frames)
     events = [e for evs in per_frame for e in evs]
@@ -149,35 +141,4 @@ def stream_onsets(x: np.ndarray, t0: float, det: OnsetDetector) -> list[tuple[fl
         t_block = t0 + i / sr
         for o in det.process(a[i : i + bs], t_block):
             out.append((t_block + bs / sr, o))
-    return out
-
-
-def _retracked(
-    frames: list[FrameInput], s: Session, cfg: Config, *, use_video: bool
-) -> list[FrameInput]:
-    """New poses from a fresh tracker fed video detections and/or recorded corners.
-
-    A frame with neither (an old recording that dropped its image) keeps its recorded
-    pose, and the tracker misses that frame, so poses after it may differ slightly.
-    """
-    if use_video and (s.video_path is None or not Path(s.video_path).exists()):
-        raise ValueError("session has no video recording")
-    if not use_video and any(r.corners is None for r in s.frames):
-        raise ValueError("session has no recorded marker corners")
-    tracker = MarkerTracker(cfg.markers, cfg.filters)
-    ids = (cfg.markers.tip_id, cfg.markers.throat_id)
-    images = video_frames(s.video_path) if use_video else iter(())
-    out = []
-    for f, rec in zip(frames, s.frames, strict=True):
-        if use_video and rec.in_video:
-            img = next(images, None)
-            if img is None:
-                raise ValueError("video has fewer frames than the session records")
-            corners = detect_markers(tracker.detector, img, ids)
-        elif rec.corners is not None:
-            corners = rec.corners
-        else:
-            out.append(f)
-            continue
-        out.append(replace(f, pose=tracker.update_corners(corners, f.t)))
     return out

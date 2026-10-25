@@ -1,7 +1,8 @@
 # Racket Guitar
 
-A tennis racket played as a guitar using only a MacBook camera and mic. The full spec
-is [docs/PID.md](docs/PID.md); read it before changing behaviour. This file is the
+A racket (tennis or badminton) played as a guitar using only a MacBook camera and mic,
+with nothing attached to the racket. The full spec is [docs/PID.md](docs/PID.md); read
+it before changing behaviour, but note its printed-marker parts are superseded (below). This file is the
 short version plus the rules for working in the repo.
 
 ## Commands
@@ -13,7 +14,6 @@ uv run pytest -m hardware    # camera/mic/speaker tests, MacBook only
 uv run ruff check . && uv run ruff format .
 uv run racketguitar fetch-model   # once: MediaPipe hand model into models/
 uv run racketguitar          # play (calibrates on first run); `calibrate`, `replay DIR`
-uv run python -m tools.print_markers -o markers.pdf
 uv run python -m tools.latency_probe analyze take.wav
 ```
 
@@ -24,15 +24,27 @@ delay a note:
 
 1. **Camera** (`capture/camera.py`): 60 fps capture (30 fallback), buffer size 1, newest
    frame only, stamped with `time.monotonic()` at capture.
-2. **Vision** (`vision/`, `geometry/`, `play/`): ArUco markers -> `RacketPose`;
-   MediaPipe Hand Landmarker in VIDEO mode on a 640x360 copy -> `HandObs`; One Euro
-   filters; then strum, gate, chord and mute logic emit `NoteEvent`s.
+2. **Vision** (`vision/`, `geometry/`, `play/`): MediaPipe Hand Landmarker in VIDEO
+   mode on a 640x360 copy -> `HandObs` (One Euro filtered); the markerless racket
+   tracker (`vision/flow.py`) -> `RacketPose`; then strum, gate, chord and mute logic
+   emit `NoteEvent`s.
 3. **Mic** (`capture/mic.py`): 48 kHz, 64-sample blocks; high-band spectral-flux
    onsets -> `Onset`. Optional, off by default.
 4. **Audio** (`audio/`): 48 kHz, 128-sample output callback rendering one
    Karplus-Strong voice per string. The callback allocates nothing and takes no locks.
 
 The main thread only draws the overlay (`ui/`), because macOS needs GUI work there.
+
+**Racket tracking is markerless.** There are no printed markers (the ArUco version was
+removed; the PID's marker sections are superseded). The player clicks four points in
+the window: the top of the head (tip), the throat (head meets shaft), where the grip
+starts, and the butt. `FlowTracker` then follows corner features on a ring around the
+head's rim with pyramidal Lucas-Kanade (forward-backward checked) and one RANSAC
+similarity transform per frame, moving the tip and throat that define the
+`RacketPose`. The grip and butt clicks set `chords.handle_u_near/far`, so the four
+chord sections cover the grip only. Known limits: fast moves can drift (re-lock with
+`l`), and it cannot tell the racket left the frame (the static background keeps
+"tracking"). Its one setting is `[tracking] hold_ms`.
 No network or AI call ever sits between a strum and its sound.
 
 Play rules (decided, do not reopen without the lead):
@@ -53,7 +65,7 @@ Play rules (decided, do not reopen without the lead):
 | Type | Producer -> consumer | Meaning |
 | --- | --- | --- |
 | `Vec2(x, y)` | everywhere | pixel point or vector (a NamedTuple) |
-| `RacketPose` | WP1 -> WP2 | `origin` = throat marker centre, `u` = unit throat->tip, `v` = perpendicular, `head_len` px |
+| `RacketPose` | WP1 -> WP2 | `origin` = throat point, `u` = unit throat->tip, `v` = perpendicular, `head_len` px (throat to tip) |
 | `HandObs` | WP1 -> WP2 | `(21, 2)` filtered `landmarks` and unfiltered `raw`, pixels |
 | `Onset` | WP4 -> gate | mic contact onset, `strength` = ratio over noise floor |
 | `StringHit` | inside WP2 | string 0 (low E)..5, `"down"`/`"up"`, speed in head lengths/s |
@@ -86,7 +98,7 @@ enforces this with an ownership map:
 | WP | Owns |
 | --- | --- |
 | WP0 (lead) | `types.py`, `config.py`, package `__init__`s, `tests/fakes/`, top-level tests |
-| WP1 Vision | `capture/camera.py`, `vision/`, `tools/print_markers.py`, `tests/vision/` |
+| WP1 Vision | `capture/camera.py`, `vision/` (hands, filters, markerless `flow.py`), `tests/vision/` |
 | WP2 Play logic | `geometry/`, `play/strum.py`, `play/chords.py`, `play/mute.py`, `play/engine.py`, `tests/play/` |
 | WP3 Audio | `audio/`, `tests/audio/` |
 | WP4 Contact gate | `capture/mic.py`, `play/gate.py`, `tests/gate/` |
@@ -106,8 +118,9 @@ rather than editing.
 - Use the fakes in `tests/fakes/` as ground truth: `make_pose`, `uv_to_px`/`px_to_uv`,
   `hand_template`/`place_hand` (`open`, `pick`, `fist`), `strum_track`,
   `fretting_hand`, `expected_slots_crossed`, `brush_strokes`, `room_noise`,
-  `speaker_bleed`, `blocks`, `render_marker_scene` (rendered ArUco frames with exact
-  pose and corners), `ScriptedGate`, `FakeClock`. Production code never imports them.
+  `speaker_bleed`, `blocks`, `render_racket` (a plain textured racket on a static
+  background, with exact tip and throat), `ScriptedGate`, `FakeClock`. Production code
+  never imports them.
 - Fixtures in `tests/conftest.py`: `rng` (seeded), `cfg` (defaults with
   `low_e_side="neg_v"`), and an autouse temp `RACKETGUITAR_HOME`.
 - Tests must be deterministic: seed every RNG, and never sleep or read the wall clock.
@@ -119,8 +132,8 @@ rather than editing.
   `python -m`), or it shadows the stdlib `types`.
 - `HandObs` holds numpy arrays, so `==` on whole instances is not meaningful. Compare
   fields with `np.array_equal`.
-- mediapipe brings `opencv-contrib-python` (it includes `cv2.aruco`). Never add
-  `opencv-python` too, because both install the same `cv2` module.
+- mediapipe brings `opencv-contrib-python`. Never add `opencv-python` too, because
+  both install the same `cv2` module.
 - The MediaPipe hand model (`models/hand_landmarker.task`) is downloaded, not committed.
 
 ## Phases
@@ -135,11 +148,12 @@ acceptance on the MacBook, then the WP6 verification by a fresh agent.
 - `pipeline.Pipeline.step(FrameInput)` is the one per-frame play step: drain onsets into
   the gate, then run the engine. The live app and the replay harness both call it, so
   a replay proves the live behaviour. Never add play logic outside it.
-- The live app (`app.LiveApp`) detects markers and then tracks them as separate calls,
-  so each frame's raw detections are recorded. Replay can feed the recorded
-  observations (exact), re-track from recorded corners or re-detect on the lossless
-  FFV1 video (`--from-corners`, `--from-video`), and re-detect onsets from `mic.wav`
-  (`--from-mic`). `tests/integration/song.py` is a scripted four-chord performance used
-  end to end.
+- Replay feeds a session's recorded observations (poses, hands, drained onsets) back
+  through the pipeline and must match exactly; `--from-mic` re-detects onsets from
+  `mic.wav`. Poses always replay as recorded (the tracker needs the lock clicks).
+  `[replay] video = true` also saves lossless FFV1 video, only for inspecting a take.
+  Changing settings mid-recording (calibration, re-lock, gate toggles) updates the
+  recording or splits it into `-partN`, so every recording replays exactly.
+  `tests/integration/song.py` is a scripted four-chord performance used end to end.
 - `audio/probe.py` (`--probe-tone`) plays a 1 kHz beep per note, so
   `tools/latency_probe.py` can measure tap-to-sound latency from a phone recording.

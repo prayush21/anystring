@@ -1,10 +1,10 @@
-"""Calibration flow: marker check, closed pick grip, open hand, and (if on) the mic.
+"""Calibration flow: racket lock, closed pick grip, open hand, and (if on) the mic.
 
 A state machine fed once per frame from the vision thread, driven only by frame times,
 so it runs the same live and in tests. The overlay draws ``instruction`` and
 ``progress``; when ``done``, ``result`` is the new ``Calibration`` (not yet saved).
 
-Steps: markers -> closed -> open -> [quiet -> brush] -> done. A grip step waits for the
+Steps: racket -> closed -> open -> [quiet -> brush] -> done. A grip step waits for the
 strumming hand to be seen continuously for ``SETTLE_S``, then records its frames for
 ``GRIP_CAPTURE_S``; losing the hand restarts that step. If the closed grip does not
 score below the open hand, the flow returns to the closed step with an error.
@@ -25,21 +25,20 @@ from racketguitar.types import HandObs, RacketPose
 
 __all__ = ["Step", "CalibrationFlow", "INSTRUCTIONS"]
 
-Step = Literal["markers", "closed", "open", "quiet", "brush", "done"]
+Step = Literal["racket", "closed", "open", "quiet", "brush", "done"]
 
-MARKERS_HOLD_S = 1.0  # both markers seen continuously this long
+RACKET_HOLD_S = 1.0  # the racket tracked continuously this long
 SETTLE_S = 1.0  # strumming hand held still before a grip capture starts
 GRIP_CAPTURE_S = 1.5
 QUIET_S = 2.0
 BRUSH_S = 4.0
-MARKERLESS_LOCK = "Click the racket: top of the head, throat, grip start, butt"
 # The spread hand must score at least this many times the pick grip, or the two are too
 # alike to tell apart and the calibration is redone (a bad one arms all the time).
 MIN_GRIP_RATIO = 1.5
 LOW_MIC_MARGIN = 2.0  # warn when brushes are this close to the detection threshold
 
 INSTRUCTIONS: dict[str, str] = {
-    "markers": "Show both printed markers (markers.pdf) taped on the racket",
+    "racket": "Click the racket: top of the head, throat, grip start, butt",
     "closed": "Hold your pick grip over the strings, exactly as you play",
     "open": "Now spread your strumming hand wide open, fingers straight and apart",
     "quiet": "Keep still and quiet",
@@ -54,14 +53,11 @@ class CalibrationFlow:
         cfg: Config,
         base: Calibration | None = None,
         mic: TeeDetector | None = None,
-        *,
-        markerless: bool = False,
     ) -> None:
         self.cfg = cfg
-        self.markerless = markerless
         self.base = base or Calibration()
         self.mic = mic
-        self.step: Step = "markers"
+        self.step: Step = "racket"
         self.error: str | None = None
         self.warning: str | None = None
         self.result: Calibration | None = None
@@ -78,8 +74,6 @@ class CalibrationFlow:
 
     @property
     def instruction(self) -> str:
-        if self.markerless and self.step == "markers":
-            return MARKERLESS_LOCK
         return INSTRUCTIONS[self.step]
 
     @property
@@ -88,8 +82,8 @@ class CalibrationFlow:
         return self._progress
 
     def update(self, t: float, pose: RacketPose, strumming: HandObs | None) -> None:
-        if self.step == "markers":
-            self._hold(t, pose.visible, MARKERS_HOLD_S, next_step="closed")
+        if self.step == "racket":
+            self._hold(t, pose.visible, RACKET_HOLD_S, next_step="closed")
         elif self.step in ("closed", "open"):
             self._grip(t, strumming)
         elif self.step in ("quiet", "brush"):

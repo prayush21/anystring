@@ -7,7 +7,8 @@ A session is a directory::
     calibration.toml  the calibration it ran with
     data.npz          frame times, poses, hands, onsets and note events (float64)
     mic.wav           raw mic input, float32 (if the mic was running)
-    video.mkv         lossless FFV1 camera frames, un-mirrored (if video was recorded)
+    video.mkv         lossless FFV1 camera frames, un-mirrored, for inspection (only
+                      with ``[replay] video = true``)
 
 Everything the play logic consumed is stored exactly, so ``replay.harness`` can feed it
 back through the same ``Pipeline`` and must get the same notes.
@@ -19,6 +20,7 @@ import json
 import queue
 import threading
 import time
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,7 +35,6 @@ from racketguitar.config import (
     Config,
     MicConfig,
     load_calibration,
-    load_config,
     save_calibration,
     save_config,
 )
@@ -51,7 +52,10 @@ __all__ = [
 ]
 
 FORMAT_VERSION = 1
-VIDEO_FOURCC = "FFV1"  # lossless, so marker detection on replayed video matches live
+VIDEO_FOURCC = "FFV1"  # lossless: frames are exactly what the detectors saw
+# Settings that old sessions recorded but this version no longer has (the marker
+# tracker was removed); dropped on load so old recordings still replay.
+_RETIRED = {"markers": None, "filters": ("marker_min_cutoff", "marker_beta")}
 _KINDS = ("on", "damp", "all_off")
 
 
@@ -60,7 +64,6 @@ class FrameRecord:
     inp: FrameInput
     events: tuple[NoteEvent, ...]
     in_video: bool = False  # this frame's image is the next one in video.mkv
-    corners: dict[int, np.ndarray] | None = None  # raw marker detections, if recorded
 
 
 @dataclass(eq=False)
@@ -111,7 +114,7 @@ def load_session(path: str | Path) -> Session:
         mic = np.asarray(mic, dtype=np.float32)
     video = d / meta["video"] if meta.get("video") else None
     return Session(
-        config=load_config(d / "config.toml"),
+        config=_load_session_config(d / "config.toml"),
         calibration=load_calibration(d / "calibration.toml"),
         frames=frames,
         mic=mic,
@@ -119,6 +122,19 @@ def load_session(path: str | Path) -> Session:
         video_path=video,
         meta=meta,
     )
+
+
+def _load_session_config(path: Path) -> Config:
+    """A session's settings, without the ones this version retired (see ``_RETIRED``)."""
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+    for section, keys in _RETIRED.items():
+        if keys is None:
+            data.pop(section, None)
+        elif isinstance(data.get(section), dict):
+            for key in keys:
+                data[section].pop(key, None)
+    return Config().with_overrides(data)
 
 
 class TeeDetector(OnsetDetector):
@@ -198,7 +214,6 @@ class Recorder:
         inp: FrameInput,
         events: list[NoteEvent],
         image: np.ndarray | None = None,
-        corners: dict[int, np.ndarray] | None = None,
     ) -> None:
         in_video = False
         if image is not None and self._want_video:
@@ -210,7 +225,7 @@ class Recorder:
                     in_video = True
                 except queue.Full:
                     self.dropped_video += 1
-        self.session.frames.append(FrameRecord(inp, tuple(events), in_video, corners))
+        self.session.frames.append(FrameRecord(inp, tuple(events), in_video))
         if self._mic is not None:
             chunk, self._mic_start = self._mic.read_since(self._mic_start)
             if chunk.size:
@@ -263,7 +278,6 @@ def _encode(frames: list[FrameRecord]) -> dict[str, np.ndarray]:
     hand_frame, hand_t, hand_lm, hand_raw = [], [], [], []
     onset_frame, onset = [], []
     ev_frame, ev_t, ev_kind, ev_string, ev_midi, ev_vel = [], [], [], [], [], []
-    corner_frame, corner_id, corner_xy = [], [], []
     for i, fr in enumerate(frames):
         p = fr.inp.pose
         pose[i] = (p.t, p.visible, *p.origin, *p.u, *p.v, p.head_len)
@@ -275,10 +289,6 @@ def _encode(frames: list[FrameRecord]) -> dict[str, np.ndarray]:
         for o in fr.inp.onsets:
             onset_frame.append(i)
             onset.append((o.t, o.strength))
-        for mid, quad in (fr.corners or {}).items():
-            corner_frame.append(i)
-            corner_id.append(mid)
-            corner_xy.append(quad)
         for e in fr.events:
             ev_frame.append(i)
             ev_t.append(e.t_detect)
@@ -291,10 +301,6 @@ def _encode(frames: list[FrameRecord]) -> dict[str, np.ndarray]:
         "frame_t": np.array([f.inp.t for f in frames], dtype=float),
         "proc_t": np.array([f.inp.proc_t for f in frames], dtype=float),
         "in_video": np.array([f.in_video for f in frames], dtype=bool),
-        "has_corners": np.array([f.corners is not None for f in frames], dtype=bool),
-        "corner_frame": np.array(corner_frame, dtype=np.int64),
-        "corner_id": np.array(corner_id, dtype=np.int64),
-        "corner_xy": np.array(corner_xy, dtype=float).reshape(-1, 4, 2),
         "pose": pose,
         "hand_frame": np.array(hand_frame, dtype=np.int64),
         "hand_t": np.array(hand_t, dtype=float),
@@ -338,9 +344,6 @@ def _decode(z: dict[str, np.ndarray]) -> list[FrameRecord]:
         events[i].append(
             NoteEvent(float(t), _KINDS[int(k)], int(s), None if m < 0 else int(m), int(v))
         )
-    corners: list[dict[int, np.ndarray] | None] = [{} if has else None for has in z["has_corners"]]
-    for i, mid, quad in zip(z["corner_frame"], z["corner_id"], z["corner_xy"], strict=True):
-        corners[i][int(mid)] = quad.copy()
     frames = []
     for i in range(n):
         t, vis, ox, oy, ux, uy, vx, vy, hl = z["pose"][i]
@@ -355,5 +358,5 @@ def _decode(z: dict[str, np.ndarray]) -> list[FrameRecord]:
         inp = FrameInput(
             float(z["frame_t"][i]), float(z["proc_t"][i]), pose, tuple(hands[i]), tuple(onsets[i])
         )
-        frames.append(FrameRecord(inp, tuple(events[i]), bool(z["in_video"][i]), corners[i]))
+        frames.append(FrameRecord(inp, tuple(events[i]), bool(z["in_video"][i])))
     return frames

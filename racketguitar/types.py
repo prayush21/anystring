@@ -12,10 +12,11 @@ Conventions every package relies on:
   frame, x to the right and y down. Detectors that work on a downscaled copy (e.g. the
   640x360 hand-landmarker input) scale results back before emitting. Mirroring is a
   display-only concern of the overlay.
-* **Racket frame.** ``u`` points from the throat marker centre toward the tip marker
-  centre. ``v`` is ``u`` rotated by +90 degrees in image coordinates:
-  ``v = (-u.y, u.x)``. Racket-frame coordinates (u, v) are measured in head lengths
-  from ``origin``, so ``px = origin + (u * U + v * V) * head_len``.
+* **Racket frame.** ``u`` points from the throat (where the head meets the shaft)
+  toward the tip of the head; both points come from the markerless tracker. ``v`` is
+  ``u`` rotated by +90 degrees in image coordinates: ``v = (-u.y, u.x)``. Racket-frame
+  coordinates (u, v) are measured in head lengths from ``origin``, so
+  ``px = origin + (u * U + v * V) * head_len``.
 * **Strings.** Index 0 is low E, 5 is high E. "down" means the fingertip moves from
   the low-E side toward the high-E side, as on a real guitar.
 * **MIDI.** Note numbers with middle C = 60. Standard tuning is 40 45 50 55 59 64.
@@ -62,7 +63,7 @@ class Vec2(NamedTuple):
 class RacketPose:  # from WP1
     t: float  # capture time, time.monotonic() seconds
     visible: bool
-    origin: Vec2  # throat marker centre, pixels
+    origin: Vec2  # throat (head meets shaft), pixels
     u: Vec2  # unit vector throat -> tip, pixels
     v: Vec2  # unit perpendicular
     head_len: float  # pixels, throat -> tip
