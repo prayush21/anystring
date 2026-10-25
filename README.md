@@ -106,7 +106,15 @@ chord sites show them. Add a header:
 ```
 
 A chord lasts one bar unless written `Am*2` (two bars) or `Am*0.5`; `{chord_bars: 0.5}`
-changes the default for the whole sheet. Songs play at 70% of their tempo
+changes the default for the whole sheet. A sheet can be chords only, one line per lyric
+line; it times the same, there is just no lyric to scroll. To try song mode on a new
+machine, copy the chords-only demo sheet in:
+
+```bash
+mkdir -p ~/.anystring/songs && cp examples/songs/*.txt ~/.anystring/songs/
+```
+
+Songs play at 70% of their tempo
 (`--speed 1.0` for full speed). Check the timing before playing:
 
 ```bash

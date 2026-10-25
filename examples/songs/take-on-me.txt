@@ -1,0 +1,52 @@
+{title: Take On Me}
+{artist: a-ha}
+{tempo: 169}
+{capo: 2}
+
+[Verse 1]
+Am  D
+G  C  C/B
+Am  D
+G  C  C/B
+Am  D
+Em  C
+
+[Chorus]
+G  D  Em  C
+G  D  Em  C
+G  D  Em  C  G  D/F#  C  D
+
+[Verse 2]
+Am  D  G
+C  C/B  Am  D
+G  C  C/B
+Am  D
+Em  C
+
+[Chorus]
+G  D  Em  C
+G  D  Em  C
+G  D  Em  C  G  D/F#  C  D
+
+[Instrumental]
+Bm  F  Bm  F  Am  D
+Am  D  Am  D
+Am  D  G  C  C/B
+Am  D  G  C  C/B
+Am  D  Am  D
+
+[Verse 3]
+Am  D
+G  C  C/B
+Am  D
+G  C  C/B
+Am  D
+Em  C
+
+[Chorus]
+G  D  Em  C
+G  D  Em  C
+G  D  Em  C  G  D/F#  C  D
+G  D  Em  C
+G  D  Em  C
+G  D  Em  C  G  D/F#  C  D

@@ -161,7 +161,8 @@ acceptance on the MacBook, then the WP6 verification by a fresh agent.
 ## Song mode (WP7)
 
 - A chord sheet (ChordPro or chords above lyrics, in `~/.anystring/songs/`, never
-  in the repo since sheets hold lyrics) becomes a timeline. `SongPlayer` plans which
+  in the repo since sheets hold lyrics) becomes a timeline. The one exception is
+  `examples/songs/`: chords-only demo sheets with no lyric text, copied in by hand. `SongPlayer` plans which
   chord labels each handle section over time; chords still come only from grip
   position. Relabels reach the engine only via `FrameInput.chords` ->
   `Engine.set_chords`, which keeps gate, strum and mute state, so recordings replay
