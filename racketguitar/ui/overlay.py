@@ -63,6 +63,13 @@ ROSETTE = (  # (radius, colour, width), drawn in order
 )
 ROSETTE_ALPHA = 0.8
 PULSE_ALPHA = 0.9
+PULSE_END_R = 0.42  # the strum ring stops inside the body's waist
+# The head drawn as a guitar body: the smooth union of two bouts, each an ellipse
+# (centre u, semi-axis along u, half width), the small upper bout at the throat.
+BODY_BOUTS = ((0.15, 0.15, 0.28), (0.60, 0.40, 0.42))
+BODY_SMOOTH = 6.0  # p-norm of the bouts' half widths: higher = sharper waist
+BODY_SCALE = 1.35  # about the head's centre, so every string lies inside the body
+BINDING_SCALE = 0.95  # the thin ivory binding just inside the outline
 
 
 @dataclass(frozen=True)
@@ -194,10 +201,10 @@ class Overlay:
     def _racket(self, img: np.ndarray, snap: EngineSnapshot) -> None:
         frame = snap.frame
         assert frame is not None
-        a = np.linspace(0, 2 * np.pi, 72)
-        hw = self.cfg.strings.head_half_width
-        head = np.c_[0.5 + 0.5 * np.cos(a), hw * np.sin(a)]
-        cv2.polylines(img, [self.px(frame.to_px(head))], True, BGR["racket"], 2, cv2.LINE_AA)
+        body = _guitar_body()
+        cv2.polylines(img, [self.px(frame.to_px(body))], True, BGR["racket"], 2, cv2.LINE_AA)
+        binding = (0.5, 0.0) + (body - (0.5, 0.0)) * BINDING_SCALE
+        cv2.polylines(img, [self.px(frame.to_px(binding))], True, BGR["ivory"], 1, cv2.LINE_AA)
         shaft = frame.to_px(np.array([[0.0, 0.0], [snap.handle.u_at(1.0), 0.0]]))
         cv2.line(img, *map(tuple, self.px(shaft)), BGR["racket"], 2, cv2.LINE_AA)
 
@@ -223,9 +230,7 @@ class Overlay:
         if last is None or not 0.0 <= t - last.hit.t < flash_s:
             return
         x = (t - last.hit.t) / flash_s
-        r = ROSETTE[-1][0] + (self.cfg.strings.head_half_width - ROSETTE[-1][0]) * (
-            1 - (1 - x) ** 2
-        )
+        r = ROSETTE[-1][0] + (PULSE_END_R - ROSETTE[-1][0]) * (1 - (1 - x) ** 2)
         colour = BGR["accent"] if last.hit.direction == "down" else BGR["up"]
         layer = img.copy()
         cv2.polylines(layer, [ring(r)], True, colour, 2 + last.velocity // 64, cv2.LINE_AA)
@@ -430,6 +435,18 @@ class Overlay:
         note = c.error or c.warning
         if note:
             _text(img, note, (24, 184), 0.6, BGR["lost"] if c.error else BGR["accent"])
+
+
+def _guitar_body(n: int = 90) -> np.ndarray:
+    """(2n, 2) closed outline of the guitar body in the racket frame, throat to tip."""
+    u = 0.5 - 0.5 * np.cos(np.linspace(0.0, np.pi, n))  # denser at the rounded ends
+    half = np.zeros(n)
+    for centre, semi, width in BODY_BOUTS:
+        d = np.clip((u - centre) / semi, -1.0, 1.0)
+        half += (width * np.sqrt(1.0 - d * d)) ** BODY_SMOOTH
+    half **= 1.0 / BODY_SMOOTH
+    outline = np.vstack([np.c_[u, half], np.c_[u, -half][::-1]])
+    return (0.5, 0.0) + (outline - (0.5, 0.0)) * BODY_SCALE
 
 
 def _text(
