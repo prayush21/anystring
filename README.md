@@ -1,14 +1,15 @@
 # Anystring
 
-*No strings attached.* Pick up anything long and flat, and start vibe strumming.
+### No strings attached.
 
-Anystring turns a racket (tennis or badminton), a frying pan, a ruler, or whatever else
-you can hold like a guitar into a playable guitar, using only a MacBook's camera (and
-optionally its mic). Click the object once in the window, hold it like a guitar, and
-strum: the app follows it, overlays six virtual strings, picks the chord from where your
-other hand grips the handle, and plays synthesized guitar with low latency. Nothing is
-attached to the object. Rackets are the best-tested case, so this guide says "racket"
-for the object you pick.
+**Vibe strum on anything.** A tennis racket, a frying pan, a ruler: if you can hold it like
+a guitar, you can play it. Just your MacBook's camera, with nothing attached to the object.
+
+Anystring follows the object in real time, overlays six virtual strings on it, picks the
+chord from where your other hand grips the handle, and plays synthesized guitar with low
+latency. Click the object's four points once in the window, hold it like a guitar, and
+strum. Rackets are the best-tested case, so this guide says "racket" for whatever you
+pick up. The optional mic can confirm real contact with the strings.
 
 ## Why
 
