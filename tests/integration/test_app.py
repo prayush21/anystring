@@ -205,7 +205,13 @@ def test_commands_apply_on_the_next_frame(tmp_path, cfg):
 
 
 def test_grip_threshold_keys_retune_the_gate_and_split_the_recording(tmp_path, cfg):
-    cfg = cfg.with_overrides({"replay": {"record_dir": str(tmp_path / "rec"), "video": False}})
+    # Exercise both adjustments from an explicit band, independent of tuned defaults.
+    cfg = cfg.with_overrides(
+        {
+            "replay": {"record_dir": str(tmp_path / "rec"), "video": False},
+            "gate": {"grip_arm_below": 0.25, "grip_release_above": 0.50},
+        }
+    )
     devices, _ = song_devices(cfg)
     app = LiveApp(cfg, Calibration(), devices)
     frames_ = devices.camera._items

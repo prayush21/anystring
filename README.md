@@ -89,9 +89,14 @@ uv run racketguitar --song "take on me"
 
 A card says when the song is ready, and the handle shows its first chords, with the one
 to grip highlighted in green. Say "start" (press `s` first) or press SPACE for a 3-2-1-GO
-count-in. The lyrics then scroll with their chords, and the handle sections relabel
-when the song needs more than four chords. SPACE stops, "from the top" restarts, `x`
-leaves song mode.
+count-in. A compact overlay across the top shows the current and next chord, your
+grip and lyrics that scroll upward. The active lyric is bright and prominent;
+upcoming lines sit faded below it, then ease into focus when their time arrives.
+The camera keeps its original size
+and aspect ratio. Song cues hide during racket locking, calibration and debug view
+(`d`) so those controls stay clear. Lyrics follow the sheet's tempo, even when you
+stop strumming. Handle sections relabel when the song needs more than four chords.
+SPACE stops and resets, "from the top" restarts, and `x` leaves song mode.
 
 ## Record and replay
 
