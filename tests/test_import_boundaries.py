@@ -43,6 +43,7 @@ OWNERS = {
     "racketguitar/ui/": "WP5",
     "racketguitar/replay/": "WP5",
     "tools/latency_probe.py": "WP5",
+    "tools/acceptance.py": "WP5",
 }
 
 

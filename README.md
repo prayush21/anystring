@@ -83,6 +83,22 @@ The target is strum-to-sound p50 under 40 ms and p95 under 60 ms.
 The app also logs its own detect-to-audio time. It prints the figures when you quit;
 for a recorded session, run `uv run python -m tools.latency_probe session DIR`.
 
+## Acceptance checks
+
+Record each on-device check with `--record DIR`, then judge the take against the PID's
+targets. The take is replayed through the same play step, so silent (gate-blocked)
+crossings and strum directions are counted too:
+
+```bash
+uv run python -m tools.acceptance recordings/idle-1 --check idle       # 2 min, no strumming
+uv run python -m tools.acceptance recordings/strums-1 --check strums --expected 100
+uv run python -m tools.acceptance recordings/burst-1 --check burst     # 8/s for 10 s
+uv run python -m tools.acceptance recordings/move-1 --check move
+uv run python -m tools.acceptance recordings/song-1 --check song --json song-1.json
+```
+
+Without `--check` it prints the measurements only. It exits 1 if any check fails.
+
 ## Development
 
 ```bash
