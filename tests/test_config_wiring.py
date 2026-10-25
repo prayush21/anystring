@@ -9,7 +9,7 @@ import ast
 from dataclasses import fields
 from pathlib import Path
 
-from racketguitar.config import Calibration, Config
+from anystring.config import Calibration, Config
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,7 +18,7 @@ PENDING: set[str] = set()  # keys waiting for code that does not exist yet
 
 def _attributes_read() -> set[str]:
     names: set[str] = set()
-    for path in [*(ROOT / "racketguitar").rglob("*.py"), *(ROOT / "tools").rglob("*.py")]:
+    for path in [*(ROOT / "anystring").rglob("*.py"), *(ROOT / "tools").rglob("*.py")]:
         if path.name == "config.py":
             continue
         for node in ast.walk(ast.parse(path.read_text())):

@@ -12,9 +12,9 @@ import math
 import numpy as np
 import pytest
 
-from racketguitar.config import GateConfig
-from racketguitar.pipeline import FrameInput, Pipeline
-from racketguitar.play.gate import grip_score
+from anystring.config import GateConfig
+from anystring.pipeline import FrameInput, Pipeline
+from anystring.play.gate import grip_score
 from tests.fakes import hand_obs, hand_template, make_pose, place_hand, uv_to_px
 
 FPS = 60.0

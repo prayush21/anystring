@@ -7,10 +7,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from racketguitar.config import Calibration, Config
-from racketguitar.pipeline import FrameInput, Pipeline
-from racketguitar.replay.harness import compare_events, render_session, replay, stream_onsets
-from racketguitar.replay.record import Recorder, TeeDetector, load_session
+from anystring.config import Calibration, Config
+from anystring.pipeline import FrameInput, Pipeline
+from anystring.replay.harness import compare_events, render_session, replay, stream_onsets
+from anystring.replay.record import Recorder, TeeDetector, load_session
 from tests.fakes import brush_strokes, mix, render_racket, room_noise
 from tests.integration.song import T0, expected_note_count, frames
 
@@ -110,7 +110,7 @@ def test_mic_gate_blocks_strums_nobody_heard(tmp_path):
 def test_stream_onsets_reports_after_the_block_ends():
     cfg = Config()
     x, truth = brush_strokes([0.2, 0.5], 1.0, peak=0.1)
-    from racketguitar.capture.mic import OnsetDetector
+    from anystring.capture.mic import OnsetDetector
 
     found = stream_onsets(x, 10.0, OnsetDetector(cfg.mic))
     assert len(found) == 2
@@ -120,7 +120,7 @@ def test_stream_onsets_reports_after_the_block_ends():
 
 
 def test_debug_video_is_lossless_and_flags_dropped_frames(tmp_path, cfg):
-    from racketguitar.replay.harness import video_frames
+    from anystring.replay.harness import video_frames
 
     song, _ = frames(cfg)
     images = [render_racket(**f.scene).image for f in song[:30]]

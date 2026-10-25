@@ -5,8 +5,8 @@ import math
 import numpy as np
 import pytest
 
-from racketguitar.config import FilterConfig
-from racketguitar.vision.filters import OneEuroFilter, fingertip_filter
+from anystring.config import FilterConfig
+from anystring.vision.filters import OneEuroFilter, fingertip_filter
 
 
 def _times(n: int, fps: float = 60.0, jitter: float = 0.0, rng=None) -> np.ndarray:

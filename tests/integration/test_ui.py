@@ -5,11 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from racketguitar.config import Calibration, Config
-from racketguitar.pipeline import FrameInput, Pipeline
-from racketguitar.replay.record import TeeDetector
-from racketguitar.ui.calibrate import BRUSH_S, GRIP_CAPTURE_S, QUIET_S, SETTLE_S, CalibrationFlow
-from racketguitar.ui.overlay import BGR, CalibrationView, Overlay, Status, View
+from anystring.config import Calibration, Config
+from anystring.pipeline import FrameInput, Pipeline
+from anystring.replay.record import TeeDetector
+from anystring.ui.calibrate import BRUSH_S, GRIP_CAPTURE_S, QUIET_S, SETTLE_S, CalibrationFlow
+from anystring.ui.overlay import BGR, CalibrationView, Overlay, Status, View
 from tests.fakes import (
     brush_strokes,
     hand_obs,
@@ -169,7 +169,7 @@ def test_calibration_flow_measures_the_mic():
 def test_text_outline_does_not_trail_past_the_text():
     import cv2
 
-    from racketguitar.ui.overlay import FONT, _text
+    from anystring.ui.overlay import FONT, _text
 
     img = np.zeros((60, 600, 3), np.uint8)
     s = "30 fps  vision 36.4 ms  latency -- ms"

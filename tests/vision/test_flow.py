@@ -7,8 +7,8 @@ import math
 import numpy as np
 import pytest
 
-from racketguitar.config import TrackerConfig
-from racketguitar.vision.flow import FlowTracker
+from anystring.config import TrackerConfig
+from anystring.vision.flow import FlowTracker
 from tests.fakes.scenes import render_racket
 
 
@@ -108,7 +108,7 @@ def test_long_sway_does_not_drift():
     long session on the racket; the chained tracker was 17 px off here."""
     first = render_racket(**sway(0))
     tr = FlowTracker(TrackerConfig(), head_half_width=first.head_half_width)
-    tr.lock(first.image, first.tip, first.throat, 0.0, butt=first.butt)
+    tr.lock(first.image, first.tip, first.throat, 0.0, handle_end=first.handle_end)
     worst = 0.0
     for k in range(1, 600):
         kw = sway(k)
@@ -126,20 +126,20 @@ def test_long_sway_does_not_drift():
     assert worst < 9.0, f"worst tip/throat error {worst:.2f} px"
 
 
-def test_handle_points_need_the_butt():
+def test_handle_points_need_the_handle_end():
     s = render_racket(**sway(0))
     without = FlowTracker(head_half_width=s.head_half_width)
     without.lock(s.image, s.tip, s.throat, 0.0)
-    with_butt = FlowTracker(head_half_width=s.head_half_width)
-    with_butt.lock(s.image, s.tip, s.throat, 0.0, butt=s.butt)
+    with_handle_end = FlowTracker(head_half_width=s.head_half_width)
+    with_handle_end.lock(s.image, s.tip, s.throat, 0.0, handle_end=s.handle_end)
 
     def on_handle(tr: FlowTracker) -> int:
         d = tr.points - s.throat
-        along = d @ (s.butt - s.throat) / float(np.sum((s.butt - s.throat) ** 2))
+        along = d @ (s.handle_end - s.throat) / float(np.sum((s.handle_end - s.throat) ** 2))
         return int(np.sum(along > 0.15))  # clear of the head's ring
 
     assert on_handle(without) == 0
-    assert on_handle(with_butt) >= 5
+    assert on_handle(with_handle_end) >= 5
 
 
 @pytest.mark.parametrize("configured", [0.3, 0.55])

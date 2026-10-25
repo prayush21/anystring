@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from racketguitar.geometry.racket import RacketFrame
-from racketguitar.play.strum import StrumDetector
+from anystring.geometry.racket import RacketFrame
+from anystring.play.strum import StrumDetector
 from tests.fakes import expected_slots_crossed, make_pose, string_slots_v
 from tests.play.tracks import at, detect, single_tip, sweep, tip_path
 

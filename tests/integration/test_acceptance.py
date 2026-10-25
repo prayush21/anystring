@@ -7,10 +7,10 @@ from dataclasses import replace
 
 import pytest
 
-from racketguitar.config import Calibration
-from racketguitar.pipeline import FrameInput, Pipeline
-from racketguitar.replay.record import FrameRecord, Session, save_session
-from racketguitar.types import NoteEvent
+from anystring.config import Calibration
+from anystring.pipeline import FrameInput, Pipeline
+from anystring.replay.record import FrameRecord, Session, save_session
+from anystring.types import NoteEvent
 from tests.integration.song import frames
 from tools.acceptance import Hit, Strum, group_strums, main, measure, report, verdicts
 

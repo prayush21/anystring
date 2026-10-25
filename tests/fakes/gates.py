@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from racketguitar.types import GripState, HandObs, Onset
+from anystring.types import GripState, HandObs, Onset
 
 
 @dataclass

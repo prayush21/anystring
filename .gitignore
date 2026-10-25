@@ -14,3 +14,6 @@ recordings/
 *.wav
 !tests/data/**/*.wav
 *.m4a
+
+# demo videos
+demos/

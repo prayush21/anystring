@@ -1,13 +1,45 @@
-# Racket Guitar
+# Anystring
 
-Play a racket (tennis or badminton) like a guitar, using only a MacBook's camera (and
-optionally its mic). Click the racket once in the window, hold it like a guitar, and
-strum the real strings: the app follows the racket, overlays six virtual strings on the
-head, picks the chord from where your other hand grips the handle, and plays
-synthesized guitar with low latency. Nothing is attached to the racket.
+*No strings attached.* Pick up anything long and flat, and start vibe strumming.
 
+Anystring turns a racket (tennis or badminton), a frying pan, a ruler, or whatever else
+you can hold like a guitar into a playable guitar, using only a MacBook's camera (and
+optionally its mic). Click the object once in the window, hold it like a guitar, and
+strum: the app follows it, overlays six virtual strings, picks the chord from where your
+other hand grips the handle, and plays synthesized guitar with low latency. Nothing is
+attached to the object. Rackets are the best-tested case, so this guide says "racket"
+for the object you pick.
+
+## Why
+
+Plenty of people see a reel and want to play guitar, and few ever do. The gap is the
+friction between wanting to make music and feeling what it is like: you need a guitar,
+lessons and weeks before anything sounds good. Anystring removes that first step.
+Open a laptop, pick up the nearest racket (or pan, or ruler), and strum. It also shows
+the chords and walks you through a song. We are not trying to replace the guitar, only to get you to one
+faster. The full motivation is in [docs/motivation.md](docs/motivation.md), with the
+founder's unedited words in [docs/motivation-transcript.md](docs/motivation-transcript.md).
+
+How it works, and what we measured, is in [docs/how-we-built-it.md](docs/how-we-built-it.md).
 The spec is [docs/PID.md](docs/PID.md); the architecture and repo rules are in
 [CLAUDE.md](CLAUDE.md).
+
+## Quick start for judges
+
+Anystring needs real hardware: a **MacBook on Apple silicon** (its camera does all the
+tracking), headphones or speakers, and any **tennis or badminton racket** (or another guitar-shaped
+object). There is no
+web or phone version. If you cannot run it, the demo video shows the full thing; the
+headless test suite (`uv run pytest`) needs no hardware at all.
+
+```bash
+uv sync
+uv run anystring fetch-model     # one time: hand model (~7.5 MB) into models/
+uv run anystring                 # click the racket's 4 points, calibrate, strum
+```
+
+Allow camera access for your terminal when macOS asks. Song mode, voice commands
+and the mic gate are optional extras described below.
 
 ## Setup
 
@@ -16,31 +48,31 @@ racket.
 
 ```bash
 uv sync
-uv run racketguitar fetch-model                 # MediaPipe hand model, ~7.5 MB, into models/
+uv run anystring fetch-model                 # MediaPipe hand model, ~7.5 MB, into models/
 ```
 
 ## Play
 
 ```bash
-uv run racketguitar
+uv run anystring
 ```
 
 1. **Lock on:** click the racket four times in the window, as prompted: the top of the
    head, the throat (where the head meets the shaft), where the grip starts, and the
-   butt. The app then follows the racket by optical flow on the head's rim, and the four
-   chord sections are spread over the grip. Press `l` and click again whenever the
-   strings stop lining up (fast moves can make it drift, and it cannot tell if you put
-   the racket down).
-2. **Calibrate** (first run, or `uv run racketguitar calibrate`): hold your **pick
+   handle end. The app then follows the racket by optical flow on the head's rim, and
+   the four chord sections are spread over the grip. Press `l` and click again whenever
+   the strings stop lining up (fast moves can make it drift, and it cannot tell if you
+   put the racket down).
+2. **Calibrate** (first run, or `uv run anystring calibrate`): hold your **pick
    grip** over the strings exactly as you play, then **spread your strumming hand wide
    open**. Calibration is redone if the two look too alike, and is saved to
-   `~/.racketguitar/calibration.toml`.
+   `~/.anystring/calibration.toml`.
 
 - **Strum:** with your pick grip (or a fist), brush across the strings, down or up.
   The badge on your hand shows ARMED. To stop, spread your fingers wide (OFF); a
   half-open hand keeps whichever state it was in.
 - **Chords:** your other hand's position on the grip picks the chord: C, G, Am, F from
-  the head end toward the butt. No hand on the grip plays open strings ("no chord").
+  the head end toward the handle end. No hand on the grip plays open strings ("no chord").
 - **Mute:** rest your open strumming hand flat on the head.
 
 Keys: `q` quit, `r` record, `c` calibrate, `g` toggle the pick-grip gate, `m` toggle
@@ -49,7 +81,7 @@ the mic gate, `l` re-lock, `d` debug view (tracked points and live grip score), 
 Useful options: `--mic` (also require a contact sound from the mic, best with
 headphones), `--record DIR`, `--no-audio`, `--config FILE`, `--probe-tone`.
 
-Settings live in `~/.racketguitar/config.toml`; it only needs the keys you change:
+Settings live in `~/.anystring/config.toml`; it only needs the keys you change:
 
 ```toml
 [gate]
@@ -61,7 +93,7 @@ master_gain = 0.6
 
 ## Song mode
 
-Put chord sheets in `~/.racketguitar/songs/` as `.txt` or `.cho` files. Either layout
+Put chord sheets in `~/.anystring/songs/` as `.txt` or `.cho` files. Either layout
 works: ChordPro (`[Am]Folding paper [D]boats`) or chords on their own line above the lyric, as
 chord sites show them. Add a header:
 
@@ -77,14 +109,14 @@ changes the default for the whole sheet. Songs play at 70% of their tempo
 (`--speed 1.0` for full speed). Check the timing before playing:
 
 ```bash
-uv run racketguitar song "take on me"
+uv run anystring song "take on me"
 ```
 
 Then play it. Press `s` and say "let's play take on me" (needs `ELEVENLABS_API_KEY`), or
 pass `--song`:
 
 ```bash
-uv run racketguitar --song "take on me"
+uv run anystring --song "take on me"
 ```
 
 A card says when the song is ready, and the handle shows its first chords, with the one
@@ -98,6 +130,19 @@ and aspect ratio. Song cues hide during racket locking, calibration and debug vi
 stop strumming. Handle sections relabel when the song needs more than four chords.
 SPACE stops and resets, "from the top" restarts, and `x` leaves song mode.
 
+## Record a demo video
+
+```bash
+uv run anystring --demo demos/demo.mp4
+```
+
+Needs `ffmpeg` (`brew install ffmpeg`). It saves exactly what the window shows, plus the
+guitar sound, as one MP4. Capture starts once you have clicked the four lock points and
+stops when you quit (`q`); encoding takes a few seconds after that. The sound is the
+notes you played, rendered by the same synth at their exact times, so it needs no
+loopback device and has no room noise. Add `--record DIR` to also keep a replayable
+session, and `--song TITLE` to play a song.
+
 ## Record and replay
 
 `r` (or `--record DIR`) saves a session: poses, hands, onsets, notes and mic audio (a
@@ -105,16 +150,16 @@ few MB a minute). Set `[replay] video = true` to also keep lossless video for
 inspecting a take; it is about 0.8 GB a minute. Replay with no camera, mic or speakers:
 
 ```bash
-uv run racketguitar replay recordings/20261024-150000               # must match exactly
-uv run racketguitar replay recordings/... --from-mic                # re-detect onsets
-uv run racketguitar replay recordings/... --config try.toml --wav out.wav
+uv run anystring replay recordings/20261024-150000               # must match exactly
+uv run anystring replay recordings/... --from-mic                # re-detect onsets
+uv run anystring replay recordings/... --config try.toml --wav out.wav
 ```
 
 ## Measuring latency
 
 The target is strum-to-sound p50 under 40 ms and p95 under 60 ms.
 
-1. Run `uv run racketguitar --probe-tone`. Each note becomes a short 1 kHz beep.
+1. Run `uv run anystring --probe-tone`. Each note becomes a short 1 kHz beep.
 2. Record on a phone held next to the racket while you tap or brush a string 30 or
    more times, a beat apart.
 3. Run `uv run python -m tools.latency_probe analyze take.wav`.

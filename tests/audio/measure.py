@@ -6,8 +6,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from racketguitar.audio.synth import KarplusStrongSynth
-from racketguitar.types import NoteEvent
+from anystring.audio.synth import KarplusStrongSynth
+from anystring.types import NoteEvent
 
 SR = 48_000
 

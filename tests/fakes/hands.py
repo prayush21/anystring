@@ -14,7 +14,7 @@ from typing import Literal
 
 import numpy as np
 
-from racketguitar.types import NUM_LANDMARKS, HandObs, RacketPose
+from anystring.types import NUM_LANDMARKS, HandObs, RacketPose
 
 from .racket import uv_to_px
 
@@ -161,7 +161,7 @@ def fretting_hand(
     palm_head_lengths: float = 0.27,
 ) -> HandObs:
     """A fist gripping the handle with its middle-finger knuckle (landmark 9) at
-    ``handle_t`` (0 = head end, 1 = butt) of the handle span along u."""
+    ``handle_t`` (0 = head end, 1 = handle end) of the handle span along u."""
     u = handle_u_near + handle_t * (handle_u_far - handle_u_near)
     knuckle = uv_to_px(pose, u, 0.0)
     hand_angle = math.degrees(math.atan2(pose.v.y, pose.v.x)) + 90.0

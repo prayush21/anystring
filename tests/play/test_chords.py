@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from racketguitar.config import DEFAULT_CHORDS, STANDARD_TUNING, ChordConfig
-from racketguitar.play.chords import ChordSelector
-from racketguitar.play.engine import Engine
+from anystring.config import DEFAULT_CHORDS, STANDARD_TUNING, ChordConfig
+from anystring.play.chords import ChordSelector
+from anystring.play.engine import Engine
 from tests.fakes import ScriptedGate, fretting_hand, make_pose
 from tests.play.tracks import sweep
 

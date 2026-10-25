@@ -9,10 +9,10 @@ import types
 import numpy as np
 import pytest
 
-from racketguitar.audio import fluid
-from racketguitar.audio.fluid import FluidSynthBackend, fluidsynth_available
-from racketguitar.audio.synth import Synth, make_synth
-from racketguitar.config import AudioConfig
+from anystring.audio import fluid
+from anystring.audio.fluid import FluidSynthBackend, fluidsynth_available
+from anystring.audio.synth import Synth, make_synth
+from anystring.config import AudioConfig
 from tests.audio.measure import all_off, damp, on
 
 

@@ -16,7 +16,7 @@ import numpy as np
 _SPRITE = 800  # sprite canvas, racket plane pixels
 _TIP_S = np.array([400.0, 80.0])  # head top in the sprite
 _THROAT_S = np.array([400.0, 440.0])  # where the head meets the shaft
-_BUTT_S = np.array([400.0, 790.0])  # end of the grip
+_HANDLE_END_S = np.array([400.0, 790.0])  # end of the grip
 _HEAD_HALF_WIDTH = 150.0 / 360.0  # head half width over head length
 
 
@@ -70,7 +70,7 @@ class RacketScene:
     tip: np.ndarray  # pixels
     throat: np.ndarray
     head_half_width: float
-    butt: np.ndarray  # pixels
+    handle_end: np.ndarray  # pixels
 
 
 def render_racket(
@@ -107,5 +107,5 @@ def render_racket(
     if occluder is not None:
         x, y, r = occluder
         cv2.circle(img, (int(x), int(y)), int(r), (120, 150, 200), -1, cv2.LINE_AA)
-    tip, throat, butt = (m[:, :2] @ p + m[:, 2] for p in (_TIP_S, _THROAT_S, _BUTT_S))
-    return RacketScene(img, tip, throat, _HEAD_HALF_WIDTH, butt)
+    tip, throat, handle_end = (m[:, :2] @ p + m[:, 2] for p in (_TIP_S, _THROAT_S, _HANDLE_END_S))
+    return RacketScene(img, tip, throat, _HEAD_HALF_WIDTH, handle_end)

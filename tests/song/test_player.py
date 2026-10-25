@@ -4,10 +4,10 @@ import math
 
 import pytest
 
-from racketguitar.config import Config
-from racketguitar.song.player import SongPlayer, build_timeline, plan_slots
-from racketguitar.song.sheet import parse_sheet
-from racketguitar.song.voicings import voicing
+from anystring.config import Config
+from anystring.song.player import SongPlayer, build_timeline, plan_slots
+from anystring.song.sheet import parse_sheet
+from anystring.song.voicings import voicing
 
 # Seven chords, so four handle sections must be relabelled during the song.
 SEVEN = """\
