@@ -16,6 +16,9 @@ shares of the calibrated pick-grip -> open-hand span, and a recording splits int
 part at each change so every part replays with its own thresholds.
 Song mode: s talk ("let's play take on me", "start", "stop"), SPACE start/stop the
 song, x leave the song.
+Clips: F8 (or f, since a MacBook's F8 is a media key unless Fn is held) saves the last
+``[clip] seconds`` of the window and the guitar's sound to the ``memories/`` folder; the card
+in the corner shows it saving, then saved. The save runs on a worker thread.
 
 Song mode reads chord sheets from ``~/.anystring/songs``. A ``SongPlayer`` decides
 which chords label the handle sections over the song; each relabel goes through
@@ -57,6 +60,7 @@ from anystring.config import (
 )
 from anystring.pipeline import FrameInput, Pipeline
 from anystring.play.gate import grip_calibrated
+from anystring.replay.clip import ClipBuffer
 from anystring.replay.demo import DemoError, DemoRecorder
 from anystring.replay.harness import render_session, replay
 from anystring.replay.record import Recorder, TeeDetector
@@ -66,16 +70,17 @@ from anystring.song.sheet import Song
 from anystring.song.voice import VoiceError, parse_command, record_clip, transcribe, wav_bytes
 from anystring.types import HandObs, NoteEvent, RacketPose
 from anystring.ui.calibrate import CalibrationFlow
+from anystring.ui.clip_hud import ClipStatus, draw_clip_hud
 from anystring.ui.overlay import CalibrationView, Overlay, Status, View
 from anystring.vision.flow import FlowTracker
 from anystring.vision.hands import MODEL_URL, HandModelMissingError, HandTracker
 
-__all__ = ["Devices", "LiveApp", "main", "gate_mode", "model_target"]
+__all__ = ["Devices", "LiveApp", "main", "gate_mode", "model_target", "clip_target", "is_snap_key"]
 
 WINDOW = "Anystring"
 HELP = (
     "q quit  r record  c calibrate  g grip gate  m mic gate  l re-lock  d debug  h help"
-    "  [ ] grip off  , . grip arm  s talk  SPACE song start/stop  x leave song"
+    "  [ ] grip off  , . grip arm  s talk  SPACE song start/stop  x leave song  F8 snap clip"
 )
 GRIP_STEP = 0.05  # [ ] , . move a grip threshold by this share of the closed -> open span
 LOCK_PROMPTS = (
@@ -85,6 +90,9 @@ LOCK_PROMPTS = (
     "Click the END of the handle (the very bottom)",
 )
 MESSAGE_S = 3.0  # how long status messages stay on screen
+# What ``cv2.waitKeyEx`` returns for F8: macOS (Cocoa's private-use code), X11/GTK, Windows.
+# ``f`` also snaps, because a MacBook's F8 is a media key unless Fn is held.
+SNAP_KEYS = frozenset({0xF70B, 0xFFC5, 0x770000, ord("f")})
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -147,6 +155,7 @@ class LiveApp:
         self._pending_lock: tuple[np.ndarray, ...] | None = None
         self.recorder: Recorder | None = None
         self.demo = DemoRecorder(demo_path, cfg) if demo_path is not None else None
+        self.clips = ClipBuffer(cfg, clock)
         self.notes = 0
         self.error: BaseException | None = None  # set if the vision thread died
         self.stop_event = threading.Event()
@@ -201,6 +210,7 @@ class LiveApp:
             self._play(events)
             if self.demo is not None:
                 self.demo.add_events(events)
+            self.clips.add_events(events)
             if self.recorder is not None:
                 image = frame.image if self.cfg.replay.video else None
                 self.recorder.add(inp, events, image)
@@ -248,6 +258,20 @@ class LiveApp:
         else:
             path = self.stop_recording()
             self._set_message(f"saved {path}")
+
+    def snap_clip(self) -> None:
+        """F8: save the last ``clip.seconds`` to the clip folder. Main thread; the encode
+        runs on its own thread and the card in the window shows how it is going."""
+        if self.clips.saving:
+            self._set_message("still saving the last clip")
+            return
+        try:
+            save = self.clips.snap(clip_target(self.cfg))
+        except DemoError as exc:
+            self._set_message(str(exc))
+            return
+        if save is None:
+            self._set_message("nothing to save yet")
 
     def start_calibration(self) -> None:
         self.flow = CalibrationFlow(self.cfg, self.calibration, self.dev.tee)
@@ -365,6 +389,9 @@ class LiveApp:
             if vision is not None:
                 vision.join(timeout=3.0)
             vision_done = vision is None or not vision.is_alive()
+            if self.clips.saving:
+                print("finishing the clip ...", flush=True)
+                self.clips.wait(120.0)
             if vision_done:
                 path = self.stop_recording()
                 if path is not None:
@@ -431,11 +458,16 @@ class LiveApp:
                 if view is not None and view is not last:
                     prompt = LOCK_PROMPTS[len(clicks)] if locking[0] else None
                     img = overlay.draw(view, clicks=tuple(clicks), prompt=prompt, debug=debug[0])
-                    cv2.imshow(WINDOW, img)
                     if self.demo is not None and not locking[0]:  # not the lock clicks
                         self.demo.add_frame(view.t, img)
+                    self.clips.add_frame(view.t, img)
+                    draw_clip_hud(img, view.status.clip, view.t)  # after: kept out of videos
+                    cv2.imshow(WINDOW, img)
                     last = view
-                key = cv2.waitKey(1) & 0xFF
+                raw = cv2.waitKeyEx(1)
+                key = raw if 0 <= raw < 256 else -1  # function keys come back as big codes
+                if is_snap_key(raw):
+                    self.snap_clip()
                 if key in (ord("q"), 27):
                     break
                 if key == ord("l"):
@@ -608,9 +640,27 @@ class LiveApp:
             onsets=tuple(self._onsets),
             recording=self.recorder is not None,
             message=msg,
+            clip=self._clip_status(),
             grip_score=self.pipeline.gate.grip_score,
             grip_band=(lo, hi),
             grip_span=(lo - g.grip_arm_below * span, lo + (1 - g.grip_arm_below) * span),
+        )
+
+    def _clip_status(self) -> ClipStatus | None:
+        save = self.clips.current
+        if save is None:
+            return None
+        finished = save.finished  # read first: the worker sets the error before it
+        phase = "saving" if finished is None else "failed" if save.error else "saved"
+        return ClipStatus(
+            phase,
+            save.started,
+            finished,
+            save.progress,
+            save.seconds,
+            save.path.parent.name,
+            save.path.name,
+            save.error,
         )
 
     def _set_message(self, text: str) -> None:
@@ -623,6 +673,16 @@ class LiveApp:
 def model_target(cfg: Config) -> Path:
     p = Path(cfg.hands.model_path)
     return p if p.is_absolute() else _REPO_ROOT / p
+
+
+def clip_target(cfg: Config) -> Path:
+    p = Path(cfg.clip.folder).expanduser()
+    return p if p.is_absolute() else _REPO_ROOT / p
+
+
+def is_snap_key(raw: int) -> bool:
+    """Whether a ``cv2.waitKeyEx`` code is the clip key."""
+    return raw in SNAP_KEYS
 
 
 def open_devices(cfg: Config, *, audio: bool, mic: bool, probe_tone: bool = False) -> Devices:

@@ -42,6 +42,7 @@ __all__ = [
     "AudioConfig",
     "UIConfig",
     "ReplayConfig",
+    "ClipConfig",
     "SongConfig",
     "Config",
     "Calibration",
@@ -244,6 +245,17 @@ class ReplayConfig:
 
 
 @dataclass(frozen=True)
+class ClipConfig:
+    """F8 clip snapping (``replay/clip.py``): the last ``seconds`` of the window and sound."""
+
+    seconds: float = 30.0  # how much history F8 saves
+    folder: str = "memories"  # relative paths are under the repo root
+    # The window frames are kept in memory as JPEGs: about 65 KB each at 720p, so the default
+    # 30 s at 30 fps is roughly 60 MB. Lower this to trade picture quality for memory.
+    jpeg_quality: int = 80
+
+
+@dataclass(frozen=True)
 class SongConfig:
     """Song mode (``song/``): a chord sheet drives which chords sit on the handle."""
 
@@ -273,6 +285,7 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     replay: ReplayConfig = field(default_factory=ReplayConfig)
+    clip: ClipConfig = field(default_factory=ClipConfig)
     song: SongConfig = field(default_factory=SongConfig)
 
     def with_overrides(self, overrides: dict[str, Any]) -> Config:

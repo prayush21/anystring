@@ -144,6 +144,25 @@ notes you played, rendered by the same synth at their exact times, so it needs n
 loopback device and has no room noise. Add `--record DIR` to also keep a replayable
 session, and `--song TITLE` to play a song.
 
+## Snap a clip (F8)
+
+While you play, the app keeps the last 30 seconds of the window and the guitar sound in
+memory. Press **F8** to save them as an MP4 in `memories/` (in the repo, git-ignored), named
+`clip-YYYYMMDD-HHMMSS.mp4`. A white flash and a card in the right corner show the clip
+saving, then saved; a small "F8 snap a clip" hint sits there the rest of the time. Playing
+is not interrupted, and the card and hint are never in the saved video.
+
+Needs `ffmpeg` (`brew install ffmpeg`). On a MacBook, F8 is the play/pause media key unless
+you hold **Fn** (or turn on "Use F1, F2, etc. keys as standard function keys"), so `f` snaps
+a clip too. Settings, in `~/.anystring/config.toml`:
+
+```toml
+[clip]
+seconds = 30        # how much history F8 saves
+folder = "memories" # relative paths are under the repo
+jpeg_quality = 80   # the history is held as JPEGs, ~60 MB for 30 s at 720p
+```
+
 ## Record and replay
 
 `r` (or `--record DIR`) saves a session: poses, hands, onsets, notes and mic audio (a

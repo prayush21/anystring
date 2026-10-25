@@ -158,6 +158,16 @@ WP0 (this skeleton). Phase 1 is WP1 to WP4 in parallel, each built against only 
 own row of the PID's work-package table. Next comes WP5 integration, then on-device
 acceptance on the MacBook, then the WP6 verification by a fresh agent.
 
+## Clips (F8)
+
+- `replay/clip.py` `ClipBuffer`: the display loop feeds it each drawn window image (kept as
+  JPEG, last `[clip] seconds`) and the play step's `NoteEvent`s; F8 (or `f`) copies the ring
+  and encodes it on a worker thread through `DemoRecorder`, into `memories/` (git-ignored).
+  Never on the play path.
+- `ui/clip_hud.py` draws the hint, flash and card from `Status.clip` (a `ClipStatus`) on the
+  display image *after* the frame went to the clip buffer and demo, so videos never contain
+  it. Its animation is a pure function of the capture time, like the rest of the overlay.
+
 ## Song mode (WP7)
 
 - A chord sheet (ChordPro or chords above lyrics, in `~/.anystring/songs/`, never
