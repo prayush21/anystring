@@ -1,5 +1,5 @@
-"""Enforces the package rule: a work package imports only ``racketguitar.types``,
-``racketguitar.config`` and its own modules. This keeps WP1..WP4 buildable in parallel.
+"""Enforces the package rule: a work package imports only ``anystring.types``,
+``anystring.config`` and its own modules. This keeps WP1..WP4 buildable in parallel.
 
 WP5 (integration: app.py, ui/, replay/, tools/latency_probe.py) is the one layer
 allowed to import across packages. A new file in a shared directory (play/, capture/)
@@ -14,39 +14,39 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SHARED = {"racketguitar/types.py", "racketguitar/config.py"}
+SHARED = {"anystring/types.py", "anystring/config.py"}
 INTEGRATION = "WP5"
 
 # Most specific match wins: exact file first, then the longest directory prefix.
 OWNERS = {
-    "racketguitar/__init__.py": "WP0",
-    "racketguitar/types.py": "WP0",
-    "racketguitar/config.py": "WP0",
-    "racketguitar/capture/__init__.py": "WP0",
-    "racketguitar/play/__init__.py": "WP0",
-    "racketguitar/capture/camera.py": "WP1",
-    "racketguitar/vision/": "WP1",
+    "anystring/__init__.py": "WP0",
+    "anystring/types.py": "WP0",
+    "anystring/config.py": "WP0",
+    "anystring/capture/__init__.py": "WP0",
+    "anystring/play/__init__.py": "WP0",
+    "anystring/capture/camera.py": "WP1",
+    "anystring/vision/": "WP1",
     "tests/vision/": "WP1",
-    "racketguitar/geometry/": "WP2",
-    "racketguitar/play/strum.py": "WP2",
-    "racketguitar/play/chords.py": "WP2",
-    "racketguitar/play/mute.py": "WP2",
-    "racketguitar/play/engine.py": "WP2",
+    "anystring/geometry/": "WP2",
+    "anystring/play/strum.py": "WP2",
+    "anystring/play/chords.py": "WP2",
+    "anystring/play/mute.py": "WP2",
+    "anystring/play/engine.py": "WP2",
     "tests/play/": "WP2",
-    "racketguitar/audio/": "WP3",
+    "anystring/audio/": "WP3",
     "tests/audio/": "WP3",
-    "racketguitar/capture/mic.py": "WP4",
-    "racketguitar/play/gate.py": "WP4",
+    "anystring/capture/mic.py": "WP4",
+    "anystring/play/gate.py": "WP4",
     "tests/gate/": "WP4",
-    "racketguitar/app.py": "WP5",
-    "racketguitar/pipeline.py": "WP5",
-    "racketguitar/ui/": "WP5",
-    "racketguitar/replay/": "WP5",
+    "anystring/app.py": "WP5",
+    "anystring/pipeline.py": "WP5",
+    "anystring/ui/": "WP5",
+    "anystring/replay/": "WP5",
     "tools/latency_probe.py": "WP5",
     "tools/acceptance.py": "WP5",
     "tools/grip_sweep.py": "WP5",
-    "racketguitar/song/__init__.py": "WP0",
-    "racketguitar/song/": "WP7",
+    "anystring/song/__init__.py": "WP0",
+    "anystring/song/": "WP7",
     "tests/song/": "WP7",
 }
 
@@ -94,7 +94,7 @@ def local_imports(path: Path, root: Path = ROOT) -> list[tuple[int, str]]:
 
 
 def checked_files() -> list[Path]:
-    files = [*(ROOT / "racketguitar").rglob("*.py"), *(ROOT / "tools").rglob("*.py")]
+    files = [*(ROOT / "anystring").rglob("*.py"), *(ROOT / "tools").rglob("*.py")]
     files += [
         p
         for d in ("vision", "play", "audio", "gate", "song")
@@ -132,7 +132,7 @@ def test_imports_stay_inside_work_package(path: Path):
 def test_production_code_never_imports_tests():
     bad = [
         (p.relative_to(ROOT).as_posix(), t)
-        for p in (ROOT / "racketguitar").rglob("*.py")
+        for p in (ROOT / "anystring").rglob("*.py")
         for _, t in local_imports(p)
         if t.startswith("tests/")
     ]
@@ -141,26 +141,26 @@ def test_production_code_never_imports_tests():
 
 def test_checker_catches_violations(tmp_path):
     """The rule itself works: imports of WP4's gate from play/ resolve to gate.py."""
-    assert owner("racketguitar/play/engine.py") == "WP2"
-    assert owner("racketguitar/play/gate.py") == "WP4"
-    assert owner("racketguitar/vision/anything_new.py") == "WP1"
-    assert owner("racketguitar/play/new_helper.py") is None
-    play = tmp_path / "racketguitar" / "play"
+    assert owner("anystring/play/engine.py") == "WP2"
+    assert owner("anystring/play/gate.py") == "WP4"
+    assert owner("anystring/vision/anything_new.py") == "WP1"
+    assert owner("anystring/play/new_helper.py") is None
+    play = tmp_path / "anystring" / "play"
     play.mkdir(parents=True)
     for f in (
-        tmp_path / "racketguitar" / "__init__.py",
-        tmp_path / "racketguitar" / "types.py",
+        tmp_path / "anystring" / "__init__.py",
+        tmp_path / "anystring" / "types.py",
         play / "__init__.py",
         play / "gate.py",
     ):
         f.write_text("")
     probe = play / "engine.py"
     probe.write_text(
-        "from racketguitar.play import gate\n"
+        "from anystring.play import gate\n"
         "from . import gate as g\n"
         "from .gate import Thing\n"
-        "import racketguitar.types\n"
+        "import anystring.types\n"
         "import numpy\n"
     )
     targets = [t for _, t in local_imports(probe, tmp_path)]
-    assert targets == ["racketguitar/play/gate.py"] * 3 + ["racketguitar/types.py"]
+    assert targets == ["anystring/play/gate.py"] * 3 + ["anystring/types.py"]

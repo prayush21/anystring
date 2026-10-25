@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from racketguitar.audio.synth import (
+from anystring.audio.synth import (
     MIDI_MAX,
     MIDI_MIN,
     KarplusStrongSynth,
@@ -13,7 +13,7 @@ from racketguitar.audio.synth import (
     make_synth,
     midi_to_hz,
 )
-from racketguitar.config import STANDARD_TUNING
+from anystring.config import STANDARD_TUNING
 from tests.audio.measure import (
     SR,
     all_off,

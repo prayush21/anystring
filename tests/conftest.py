@@ -9,13 +9,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from racketguitar.config import Config
+from anystring.config import Config
 
 
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path, monkeypatch):
-    """Point user files at a temp dir so no test reads or writes ~/.racketguitar."""
-    monkeypatch.setenv("RACKETGUITAR_HOME", str(tmp_path / "home"))
+    """Point user files at a temp dir so no test reads or writes ~/.anystring."""
+    monkeypatch.setenv("ANYSTRING_HOME", str(tmp_path / "home"))
 
 
 @pytest.fixture

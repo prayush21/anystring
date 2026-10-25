@@ -7,9 +7,9 @@ import itertools
 import numpy as np
 import pytest
 
-from racketguitar.capture.mic import detect_onsets
-from racketguitar.config import Calibration, Config, GateConfig
-from racketguitar.play.gate import (
+from anystring.capture.mic import detect_onsets
+from anystring.config import Calibration, Config, GateConfig
+from anystring.play.gate import (
     GRIP_SCORE_VERSION,
     Gate,
     GripClassifier,
@@ -19,7 +19,7 @@ from racketguitar.play.gate import (
     grip_thresholds,
     make_gate,
 )
-from racketguitar.types import Onset, StrumGate
+from anystring.types import Onset, StrumGate
 from tests.fakes import (
     brush_strokes,
     hand_obs,

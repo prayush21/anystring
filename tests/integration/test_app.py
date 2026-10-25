@@ -8,12 +8,12 @@ import threading
 import numpy as np
 import pytest
 
-from racketguitar.app import Devices, LiveApp, build_parser, gate_mode, main
-from racketguitar.capture.camera import Frame
-from racketguitar.config import Calibration, Config, load_calibration, load_config, save_config
-from racketguitar.replay.harness import replay
-from racketguitar.replay.record import load_session
-from racketguitar.vision.flow import FlowTracker
+from anystring.app import Devices, LiveApp, build_parser, gate_mode, main
+from anystring.capture.camera import Frame
+from anystring.config import Calibration, Config, load_calibration, load_config, save_config
+from anystring.replay.harness import replay
+from anystring.replay.record import load_session
+from anystring.vision.flow import FlowTracker
 from tests.fakes import hand_obs, make_pose, place_hand, render_racket, uv_to_px
 from tests.fakes.hands import INDEX_TIP
 from tests.integration.song import expected_note_count, frames
@@ -103,7 +103,7 @@ def song_devices(cfg: Config, on_done=lambda: None) -> tuple[Devices, FakeAudio]
 
 def lock_on(app: LiveApp, pose, cfg: Config) -> None:
     """The four clicks a player makes, at the racket's true points: head top, throat,
-    grip start and butt (the grip clicks at the configured chord span)."""
+    grip start and handle end (the grip clicks at the configured chord span)."""
     o, u, h = np.asarray(pose.origin), np.asarray(pose.u), pose.head_len
     app.request_lock(
         o + u * h, o, o + u * cfg.chords.handle_u_near * h, o + u * cfg.chords.handle_u_far * h
@@ -126,7 +126,7 @@ def test_live_session_plays_records_and_replays(tmp_path, cfg):
     lock_song(app, cfg)
     app.run(display=False, seconds=60)
 
-    # The grip and butt clicks set the chord sections.
+    # The grip and handle-end clicks set the chord sections.
     assert app.cfg.chords.handle_u_near == pytest.approx(cfg.chords.handle_u_near, abs=0.01)
     assert app.cfg.chords.handle_u_far == pytest.approx(cfg.chords.handle_u_far, abs=0.01)
 

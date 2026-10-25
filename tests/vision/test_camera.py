@@ -15,8 +15,8 @@ import cv2
 import numpy as np
 import pytest
 
-from racketguitar.capture.camera import Camera, CameraError
-from racketguitar.config import CameraConfig
+from anystring.capture.camera import Camera, CameraError
+from anystring.config import CameraConfig
 
 WAIT = 2.0  # generous timeout for thread hand-offs; never reached when things work
 

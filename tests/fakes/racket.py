@@ -9,8 +9,8 @@ import math
 
 import numpy as np
 
-from racketguitar.config import StringsConfig
-from racketguitar.types import RacketPose, Vec2
+from anystring.config import StringsConfig
+from anystring.types import RacketPose, Vec2
 
 
 def make_pose(

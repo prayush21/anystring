@@ -21,7 +21,7 @@ take; `tools/latency_probe.py` measures tap-to-sound from a phone recording.
 **Result: tap-to-sound p50 ~160 ms, p95 ~280 ms (min 119, max 351), over 34 taps.**
 Targets are p50 under 40 ms and p95 under 60 ms.
 
-Method: `racketguitar --probe-tone` (a 40 ms, 1 kHz beep per note), with about 40 taps
+Method: `anystring --probe-tone` (a 40 ms, 1 kHz beep per note), with about 40 taps
 on one string, made with a fingernail or pick so each tap clicks, recorded by a phone
 held a few centimetres from the string. Audio: `recordings/latency-3/phone.wav`. No app
 session goes with this audio (the record key did not register), but the app's

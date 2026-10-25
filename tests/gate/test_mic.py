@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from racketguitar.capture.mic import (
+from anystring.capture.mic import (
     MicStream,
     OnsetDetector,
     adc_to_monotonic,
@@ -16,8 +16,8 @@ from racketguitar.capture.mic import (
     detect_onsets,
     mic_margin,
 )
-from racketguitar.config import Calibration, MicConfig
-from racketguitar.types import Onset
+from anystring.config import Calibration, MicConfig
+from anystring.types import Onset
 from tests.fakes import (
     SR,
     blocks,

@@ -3,7 +3,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from racketguitar.types import (
+from anystring.types import (
     HandObs,
     NoteEvent,
     Onset,

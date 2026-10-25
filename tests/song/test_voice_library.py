@@ -8,10 +8,10 @@ import wave
 import numpy as np
 import pytest
 
-from racketguitar.config import SongConfig
-from racketguitar.song.library import find_song, match_score, normalize, sheet_paths, songs_dir
-from racketguitar.song.sheet import parse_sheet
-from racketguitar.song.voice import (
+from anystring.config import SongConfig
+from anystring.song.library import find_song, match_score, normalize, sheet_paths, songs_dir
+from anystring.song.sheet import parse_sheet
+from anystring.song.voice import (
     API_KEY_ENV,
     STT_URL,
     VoiceError,
@@ -59,7 +59,7 @@ def test_word_order_slip_scores_high():
 
 
 def test_songs_dir_is_under_home(tmp_path):
-    assert songs_dir() == tmp_path / "home" / "songs"  # conftest's RACKETGUITAR_HOME
+    assert songs_dir() == tmp_path / "home" / "songs"  # conftest's ANYSTRING_HOME
 
 
 @pytest.mark.parametrize(

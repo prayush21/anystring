@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from racketguitar.config import STANDARD_TUNING
-from racketguitar.song.voicings import (
+from anystring.config import STANDARD_TUNING
+from anystring.song.voicings import (
     ALIASES,
     INTERVALS,
     UnknownChordError,

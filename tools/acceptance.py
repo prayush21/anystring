@@ -1,6 +1,6 @@
 """Acceptance report for a recorded session: the PID's on-device checks, measured.
 
-Record each check with ``racketguitar play --record DIR``, then run this on the take.
+Record each check with ``anystring play --record DIR``, then run this on the take.
 The session is replayed through a fresh ``Pipeline`` (the same code live play ran), so
 every detected crossing is seen with its direction and whether the gate let it play,
 not only the notes that sounded. Hits are grouped into strums: one sweep in one
@@ -28,10 +28,10 @@ from typing import Literal
 
 import numpy as np
 
-from racketguitar.pipeline import Pipeline
-from racketguitar.replay.harness import compare_events
-from racketguitar.replay.record import Session, load_session
-from racketguitar.types import Direction
+from anystring.pipeline import Pipeline
+from anystring.replay.harness import compare_events
+from anystring.replay.record import Session, load_session
+from anystring.types import Direction
 
 __all__ = [
     "Hit",

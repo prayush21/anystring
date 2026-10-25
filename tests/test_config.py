@@ -1,6 +1,6 @@
 import pytest
 
-from racketguitar.config import (
+from anystring.config import (
     DEFAULT_CHORDS,
     STANDARD_TUNING,
     Calibration,
@@ -67,3 +67,13 @@ def test_calibration_round_trip():
     save_calibration(cal)
     assert (home_dir() / "calibration.toml").exists()
     assert load_calibration() == cal
+
+
+def test_home_dir_falls_back_to_legacy_racketguitar(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANYSTRING_HOME")
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    assert home_dir() == tmp_path / ".anystring"
+    (tmp_path / ".racketguitar").mkdir()
+    assert home_dir() == tmp_path / ".racketguitar"
+    (tmp_path / ".anystring").mkdir()
+    assert home_dir() == tmp_path / ".anystring"

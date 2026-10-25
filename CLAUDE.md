@@ -1,7 +1,8 @@
-# Racket Guitar
+# Anystring
 
-A racket (tennis or badminton) played as a guitar using only a MacBook camera and mic,
-with nothing attached to the racket. The full spec is [docs/PID.md](docs/PID.md); read
+A racket (tennis or badminton, or a pan, a ruler, anything held like a guitar) played as
+a guitar using only a MacBook camera and mic, with nothing attached to it. The code and
+the types still say "racket", the best-tested case. The full spec is [docs/PID.md](docs/PID.md); read
 it before changing behaviour, but note its printed-marker parts are superseded (below). This file is the
 short version plus the rules for working in the repo.
 
@@ -12,8 +13,8 @@ uv sync                      # install (Python 3.12, deps pinned in uv.lock)
 uv run pytest                # headless suite; hardware tests are deselected
 uv run pytest -m hardware    # camera/mic/speaker tests, MacBook only
 uv run ruff check . && uv run ruff format .
-uv run racketguitar fetch-model   # once: MediaPipe hand model into models/
-uv run racketguitar          # play (calibrates on first run); `calibrate`, `replay DIR`
+uv run anystring fetch-model   # once: MediaPipe hand model into models/
+uv run anystring          # play (calibrates on first run); `calibrate`, `replay DIR`
 uv run python -m tools.latency_probe analyze take.wav
 uv run python -m tools.grip_sweep --closed DIR --relaxed DIR   # rank grip thresholds
 ```
@@ -39,7 +40,7 @@ The main thread only draws the overlay (`ui/`), because macOS needs GUI work the
 **Racket tracking is markerless.** There are no printed markers (the ArUco version was
 removed; the PID's marker sections are superseded). The player clicks four points in
 the window: the top of the head (tip), the throat (head meets shaft), where the grip
-starts, and the butt. `FlowTracker` then follows corner features on a ring around the
+starts, and the handle end. `FlowTracker` then follows corner features on a ring around the
 head's rim (its width fitted to the rim's edge at lock) and on a narrow strip along the
 shaft and handle, with pyramidal Lucas-Kanade (forward-backward checked), dropping any
 inside a hand. Each feature keeps its lock-frame anchor, and one RANSAC similarity
@@ -48,7 +49,7 @@ applied to the clicked tip and throat to give the `RacketPose`. Fitting against 
 anchors rather than chaining frame-to-frame fits is what stops slow rotation drift (a
 round badminton rim barely pins rotation; the handle strip helps). New features are
 only added while the last fit kept at least half of its features, so a fast swing
-ends in "racket lost" rather than locking onto the background. The grip and butt
+ends in "racket lost" rather than locking onto the background. The grip and handle-end
 clicks set `chords.handle_u_near/far`, so the four chord sections cover the grip only.
 Known limits: a fast swing can lose it (re-lock with `l`), and it cannot tell the
 racket left the frame slowly (the static background keeps "tracking"). Its one
@@ -67,13 +68,13 @@ Play rules (decided, do not reopen without the lead):
   **mic gate** is optional and off by
   default; with both on, a crossing needs a pick grip *and* an onset in the last 80 ms.
 - **Chords** come only from which of **4 handle sections** the fretting hand grips:
-  C, G, Am, F from head to butt. There is no finger chord-shape recognition. The
+  C, G, Am, F from head to handle end. There is no finger chord-shape recognition. The
   fretting hand is whichever hand is nearer the handle; no hand = open strings.
 - **Strings**: 6 segments parallel to u, at u 0.15..0.85, spread across v -0.30..+0.30
   head lengths. Each string has a 40 ms refractory window, with no global cooldown.
 - **Palm mute**: open strumming hand resting on the head for 150 ms damps all strings.
 
-## Contracts (`racketguitar/types.py`, frozen)
+## Contracts (`anystring/types.py`, frozen)
 
 | Type | Producer -> consumer | Meaning |
 | --- | --- | --- |
@@ -96,15 +97,15 @@ Conventions all packages share (the docstring in `types.py` is the source of tru
 - `play/engine.py` receives its `StrumGate` by injection and never imports
   `play/gate.py`.
 
-All thresholds live in `racketguitar/config.py` (`Config`, TOML overrides, unknown keys
-rejected); per-user measurements live in `Calibration` (`~/.racketguitar/`, or
-`$RACKETGUITAR_HOME`). Do not hard-code a tuning number: add a `Config` key (via the
+All thresholds live in `anystring/config.py` (`Config`, TOML overrides, unknown keys
+rejected); per-user measurements live in `Calibration` (`~/.anystring/`, or
+`$ANYSTRING_HOME`; an older `~/.racketguitar/` is used until the new one exists). Do not hard-code a tuning number: add a `Config` key (via the
 lead) and read it. `tests/test_config_wiring.py` fails if a key is never read.
 
 ## The import rule
 
 **No package imports another package except `types.py` and `config.py`.** A work
-package may import `racketguitar.types`, `racketguitar.config`, its own modules,
+package may import `anystring.types`, `anystring.config`, its own modules,
 third-party libraries and the stdlib, and nothing else. `tests/test_import_boundaries.py`
 enforces this with an ownership map:
 
@@ -136,13 +137,13 @@ rather than editing.
   background, with exact tip and throat), `ScriptedGate`, `FakeClock`. Production code
   never imports them.
 - Fixtures in `tests/conftest.py`: `rng` (seeded), `cfg` (defaults with
-  `low_e_side="neg_v"`), and an autouse temp `RACKETGUITAR_HOME`.
+  `low_e_side="neg_v"`), and an autouse temp `ANYSTRING_HOME`.
 - Tests must be deterministic: seed every RNG, and never sleep or read the wall clock.
 
 ## Gotchas
 
 - The package has a module named `types.py`. Always import it as
-  `racketguitar.types`, and never run a file inside `racketguitar/` as a script (use
+  `anystring.types`, and never run a file inside `anystring/` as a script (use
   `python -m`), or it shadows the stdlib `types`.
 - `HandObs` holds numpy arrays, so `==` on whole instances is not meaningful. Compare
   fields with `np.array_equal`.
@@ -159,7 +160,7 @@ acceptance on the MacBook, then the WP6 verification by a fresh agent.
 
 ## Song mode (WP7)
 
-- A chord sheet (ChordPro or chords above lyrics, in `~/.racketguitar/songs/`, never
+- A chord sheet (ChordPro or chords above lyrics, in `~/.anystring/songs/`, never
   in the repo since sheets hold lyrics) becomes a timeline. `SongPlayer` plans which
   chord labels each handle section over time; chords still come only from grip
   position. Relabels reach the engine only via `FrameInput.chords` ->

@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from racketguitar.config import ChordConfig, StringsConfig
-from racketguitar.geometry.racket import (
+from anystring.config import ChordConfig, StringsConfig
+from anystring.geometry.racket import (
     HandleAxis,
     RacketFrame,
     StringLayout,

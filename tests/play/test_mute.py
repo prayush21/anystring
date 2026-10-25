@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from racketguitar.geometry.racket import RacketFrame
-from racketguitar.play.engine import Engine
-from racketguitar.play.mute import PalmMute, is_open_hand
+from anystring.geometry.racket import RacketFrame
+from anystring.play.engine import Engine
+from anystring.play.mute import PalmMute, is_open_hand
 from tests.fakes import ScriptedGate, hand_obs, hand_template, make_pose, place_hand, uv_to_px
 from tests.play.tracks import sweep
 

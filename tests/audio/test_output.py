@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from racketguitar.audio.output import (
+from anystring.audio.output import (
     CHANNELS,
     QUEUE_MAX,
     AudioOutput,
@@ -16,8 +16,8 @@ from racketguitar.audio.output import (
     render_offline,
     render_to_wav,
 )
-from racketguitar.audio.synth import KarplusStrongSynth
-from racketguitar.config import AudioConfig
+from anystring.audio.synth import KarplusStrongSynth
+from anystring.config import AudioConfig
 from tests.audio.measure import SR, all_off, damp, on, rms
 from tests.fakes import FakeClock, read_wav
 

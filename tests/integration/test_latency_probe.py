@@ -9,10 +9,10 @@ import numpy as np
 import pytest
 from scipy.io import wavfile
 
-from racketguitar.audio.output import render_offline
-from racketguitar.audio.probe import BURST_MS, PROBE_HZ, ProbeTone
-from racketguitar.audio.synth import Synth
-from racketguitar.types import NoteEvent
+from anystring.audio.output import render_offline
+from anystring.audio.probe import BURST_MS, PROBE_HZ, ProbeTone
+from anystring.audio.synth import Synth
+from anystring.types import NoteEvent
 from tests.fakes import brush_strokes, mix, room_noise
 from tools.latency_probe import analyze, beep_times, main
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from racketguitar.config import Calibration
-from racketguitar.pipeline import FrameInput
-from racketguitar.replay.record import Recorder
+from anystring.config import Calibration
+from anystring.pipeline import FrameInput
+from anystring.replay.record import Recorder
 from tests.fakes import hand_obs, make_pose, place_hand, uv_to_px
 from tests.integration.test_strum_gate import performance
 from tools.grip_sweep import Setting, evaluate, load_take, main, sweep, take_parts

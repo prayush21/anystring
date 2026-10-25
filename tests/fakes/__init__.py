@@ -1,4 +1,4 @@
-"""Fake data for headless tests. Test-only: production code under racketguitar/ never
+"""Fake data for headless tests. Test-only: production code under anystring/ never
 imports from here.
 
     from tests.fakes import make_pose, strum_track, brush_strokes, render_racket

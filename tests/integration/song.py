@@ -12,8 +12,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from racketguitar.config import Config
-from racketguitar.types import HandObs, RacketPose
+from anystring.config import Config
+from anystring.types import HandObs, RacketPose
 from tests.fakes import fretting_hand, make_pose, place_hand, px_to_uv, string_slots_v, uv_to_px
 from tests.fakes.hands import INDEX_TIP, hand_obs
 

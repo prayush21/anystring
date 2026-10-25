@@ -1,19 +1,19 @@
-# Racket Guitar: Project Initiation Document
+# Anystring: Project Initiation Document
 
 Oct 24, 2026 · @PMD
 
 > **Amendment (Oct 24, 2026): racket tracking is markerless.** The printed ArUco
 > markers described below were built, then removed after on-device testing. Instead,
 > the player clicks the racket four times in the window (the top of the head, the
-> throat, where the grip starts, and the butt), and the app follows it by optical flow
-> on the head's rim (`racketguitar/vision/flow.py`). The four chord sections span the
+> throat, where the grip starts, and the handle end), and the app follows it by optical flow
+> on the head's rim (`anystring/vision/flow.py`). The four chord sections span the
 > grip only. Wherever this document mentions markers, marker images, printing markers,
 > the marker PDF tool or marker-based replay, read it as superseded. `CLAUDE.md`
 > describes the current implementation.
 
 ## Executive summary
 
-Racket Guitar turns a tennis racket into a playable guitar using only a MacBook's camera and microphone. The user tapes two printed markers to the racket, the app overlays virtual strings on the string bed, and strumming the real strings plays guitar notes in under 50 ms.
+Anystring (originally "Racket Guitar") turns a tennis racket, or any guitar-shaped object, into a playable guitar using only a MacBook's camera and microphone. The user tapes two printed markers to the racket, the app overlays virtual strings on the string bed, and strumming the real strings plays guitar notes in under 50 ms.
 
 The camera decides **where** the hand is (which string, which chord) and **whether** a stroke counts: a closed pick grip arms the strumming hand, an open hand disarms it. The microphone can optionally confirm real contact with the strings, and the physical racket gives the player real tactile feedback. That combination fixes the core weaknesses of webcam air guitars, most visibly the missing up-strum.
 
@@ -109,7 +109,7 @@ The main thread only draws the overlay with `cv2.imshow` at up to 30 fps (macOS 
 - **Strings.** Six segments parallel to *u* (like guitar strings along the neck), spanning u = 0.15 to 0.85 of the head, evenly spaced across v = -0.30 to +0.30 of head width. Virtual spacing is wider than the real strings on purpose.
 - **Strum detection.** For the strumming index and middle fingertips, track each string's signed distance in *v*. A hit = sign change between consecutive samples, crossing point inside the segment's *u* range, and perpendicular speed above a threshold. Direction comes from the sign change. Each string has its own 40 ms refractory window, replacing the 130 ms global cooldown. A sweep crosses strings in order, so the strum cascade is free.
 - **Strum gate.** Two sources, chosen in config. Pick grip (default, camera only): a crossing counts only while the strumming hand holds a pick grip, thumb pad pressed against the side of a curled index finger, other fingers curled. An open hand never strums, so you open it to lift away. The grip is classified every frame from the thumb gap (thumb tip to the side of the index, normalised by palm size), with a narrow hysteresis: it arms below 28 % of the way from your closed grip to your open hand and disarms above 33 %, one frame each. Holding a pick is the thumb on the index, and on recorded takes the thumb gap alone told pick-grip strums from relaxed returns far better than a score that also counted the other fingers (2 of 89 relaxed returns played, 9 % of strum crossings missed). A short calibration records your own closed and open hand to set the thresholds. Mic contact (optional): the mic fires an onset on a jump in high-band (2 to 8 kHz) spectral flux above an adaptive noise floor. Physical contact is heard before the camera sees the crossing (camera lag is 30 to 50 ms), so the rule is: a crossing plays only if an onset happened in the last 80 ms, and an onset keeps the gate open for 150 ms during a sweep. This adds no latency and removes lift-away false strums, which is what makes up-strums safe. With both enabled, a crossing needs a pick grip and a recent onset. Both can be turned off for free air play.
-- **Chords.** The fretting hand is whichever hand is nearer the handle, so handedness needs no setting. Its middle-finger knuckle (landmark 9) is projected onto the handle axis (u below 0) to get t from 0 to 1, split into 4 zones with 0.05 hysteresis. Each section maps to a fixed chord voicing (6 MIDI notes, or none for an unplayed string), ordered C, G, Am, F from the head toward the butt. Finger positions are never read as chord shapes: only which section the hand is in matters, so any object with a handle works. No fretting hand visible = open strings.
+- **Chords.** The fretting hand is whichever hand is nearer the handle, so handedness needs no setting. Its middle-finger knuckle (landmark 9) is projected onto the handle axis (u below 0) to get t from 0 to 1, split into 4 zones with 0.05 hysteresis. Each section maps to a fixed chord voicing (6 MIDI notes, or none for an unplayed string), ordered C, G, Am, F from the head toward the handle end. Finger positions are never read as chord shapes: only which section the hand is in matters, so any object with a handle works. No fretting hand visible = open strings.
 - **Palm mute.** Strumming hand open (all fingers extended), palm centre inside the head, speed below a threshold for 150 ms = damp all ringing strings within 30 ms.
 - **Velocity.** Perpendicular fingertip speed maps to MIDI velocity 20 to 127 on a curve (gamma 1.6), driving both loudness and brightness.
 - **Synth.** One Karplus-Strong voice per string; re-striking a string restarts its voice (as on a real guitar). Optional FluidSynth backend behind the same interface.
@@ -118,7 +118,7 @@ The main thread only draws the overlay with `cv2.imshow` at up to 30 fps (macOS 
 **Package layout**
 
 ```
-racketguitar/
+anystring/
   types.py           shared dataclasses (the contracts)
   config.py          settings + calibration file (TOML)
   capture/           camera.py, mic.py
@@ -178,7 +178,7 @@ No phase starts until the previous gate passes.
 
 The lead writes the shared contracts first (WP0); four sub-agents then build in parallel against those contracts, one integrates, and a separate agent that never saw the build verifies it. Each package may import only `types.py`, `config.py` and its own modules, and must ship tests that run headless (no camera, mic or speakers).
 
-**Shared contracts (`racketguitar/types.py`, frozen after WP0)**
+**Shared contracts (`anystring/types.py`, frozen after WP0)**
 
 ```python
 @dataclass(frozen=True)
@@ -228,7 +228,7 @@ class NoteEvent:  # WP2 -> WP3
 | WP2 | Play logic | `geometry/racket.py`, `play/strum.py`, `play/chords.py`, `play/mute.py`, `play/engine.py` | WP0 | Synthetic fingertip tracks: every crossing detected with correct string and direction; no hit outside a segment; per-string refractory honoured; chord zones with hysteresis; mute fires; gate interface respected |
 | WP3 | Audio | `audio/synth.py`, `audio/output.py`, `audio/fluid.py` | WP0 | Karplus-Strong pitch within 5 cents of target; voice restart and damping work; callback renders 128 samples in under 0.5 ms; offline render to WAV for tests |
 | WP4 | Contact gate | `capture/mic.py`, `play/gate.py` | WP0 | On synthetic WAVs (brush noise, silence, room noise, speaker bleed), onsets found within 5 ms; false onsets under 1 per minute on noise; gate window logic unit-tested |
-| WP5 | Integration | `app.py`, `ui/overlay.py`, `ui/calibrate.py`, `replay/`, `tools/latency_probe.py`, README | WP1 to WP4 | `uv run racketguitar` launches on macOS; replay harness reproduces a recorded session deterministically; end-to-end replay test passes |
+| WP5 | Integration | `app.py`, `ui/overlay.py`, `ui/calibrate.py`, `replay/`, `tools/latency_probe.py`, README | WP1 to WP4 | `uv run anystring` launches on macOS; replay harness reproduces a recorded session deterministically; end-to-end replay test passes |
 | WP6 | Verifier (fresh agent) | Test report against the success criteria; code review | WP5 | Report lists each criterion as pass, fail or needs on-device check, with evidence |
 
 WP1 to WP4 run in parallel. Each agent receives this PID, the contracts file, and only its own row.
@@ -276,7 +276,7 @@ Most logic is proven headless in the cloud before it touches hardware; only late
 ## Open decisions
 
 - [ ] **Where the code lives:** a connected folder on your MacBook, a new GitHub repo, or files sent in chat
-- [ ] **Default chords per handle zone:** decided: four handle sections, C, G, Am, F from head to butt, no chord shapes; open only whether to add more presets later
+- [ ] **Default chords per handle zone:** decided: four handle sections, C, G, Am, F from head to handle end, no chord shapes; open only whether to add more presets later
 - [ ] **Racket hold:** like a guitar (handle as the neck, strings along the racket) is the default; flat on a table is the fallback
 - [ ] **Python first, Swift later:** Python v1 for speed of iteration, Swift port in v4 if latency demands it
 - [ ] **Headphones required or recommended:** decides how hard the speaker-bleed problem must be solved in v1

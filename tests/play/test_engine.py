@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from racketguitar.config import STANDARD_TUNING, Config, VelocityConfig
-from racketguitar.play.engine import Engine, velocity_for_speed
-from racketguitar.types import StrumGate
+from anystring.config import STANDARD_TUNING, Config, VelocityConfig
+from anystring.play.engine import Engine, velocity_for_speed
+from anystring.types import StrumGate
 from tests.fakes import (
     ScriptedGate,
     fretting_hand,
@@ -226,9 +226,9 @@ def test_reset(cfg):
 def test_a_hand_on_the_shaft_is_never_the_strumming_hand():
     """With chords on the grip only, a fist holding the shaft is not fretting; it must
     not be taken for the strumming hand either (it would arm the gate as a fist)."""
-    from racketguitar.config import Config
-    from racketguitar.geometry.racket import HandleAxis, RacketFrame
-    from racketguitar.play.engine import split_hands
+    from anystring.config import Config
+    from anystring.geometry.racket import HandleAxis, RacketFrame
+    from anystring.play.engine import split_hands
     from tests.fakes import hand_obs, make_pose, place_hand, uv_to_px
 
     cfg = Config().with_overrides({"chords": {"handle_u_near": -1.2, "handle_u_far": -2.0}})

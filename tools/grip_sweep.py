@@ -2,8 +2,8 @@
 
 Record labelled takes, then sweep::
 
-    uv run racketguitar --record recordings/grip-closed    # pick grip both ways
-    uv run racketguitar --record recordings/grip-relaxed   # pick-grip down, relaxed return
+    uv run anystring --record recordings/grip-closed    # pick grip both ways
+    uv run anystring --record recordings/grip-relaxed   # pick-grip down, relaxed return
     uv run python -m tools.grip_sweep --closed recordings/grip-closed \\
         --relaxed recordings/grip-relaxed
 
@@ -40,10 +40,10 @@ from typing import Literal
 
 import numpy as np
 
-from racketguitar.config import GateConfig
-from racketguitar.pipeline import Pipeline
-from racketguitar.play.gate import GripClassifier, grip_score, grip_thresholds
-from racketguitar.replay.record import load_session
+from anystring.config import GateConfig
+from anystring.pipeline import Pipeline
+from anystring.play.gate import GripClassifier, grip_score, grip_thresholds
+from anystring.replay.record import load_session
 
 __all__ = ["Take", "Setting", "Result", "take_parts", "load_take", "evaluate", "sweep", "main"]
 

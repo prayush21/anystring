@@ -8,8 +8,8 @@ from mediapipe.tasks.python import vision
 from mediapipe.tasks.python.components.containers.category import Category
 from mediapipe.tasks.python.components.containers.landmark import NormalizedLandmark
 
-from racketguitar.config import FilterConfig, HandConfig
-from racketguitar.vision.hands import (
+from anystring.config import FilterConfig, HandConfig
+from anystring.vision.hands import (
     MODEL_URL,
     HandModelMissingError,
     HandTracker,

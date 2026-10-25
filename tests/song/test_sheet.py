@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from racketguitar.song.sheet import DEFAULT_TEMPO, load_sheet, parse_sheet
+from anystring.song.sheet import DEFAULT_TEMPO, load_sheet, parse_sheet
 
 ABOVE = """\
 {title: Paper Boats}

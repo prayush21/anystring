@@ -13,9 +13,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from racketguitar.audio.output import CHANNELS, AudioOutput
-from racketguitar.audio.synth import KarplusStrongSynth
-from racketguitar.config import AudioConfig
+from anystring.audio.output import CHANNELS, AudioOutput
+from anystring.audio.synth import KarplusStrongSynth
+from anystring.config import AudioConfig
 from tests.audio.measure import damp, on
 
 BUDGET_S = 0.5e-3

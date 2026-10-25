@@ -7,10 +7,10 @@ from dataclasses import replace
 
 import numpy as np
 
-from racketguitar.config import Config
-from racketguitar.geometry.racket import RacketFrame
-from racketguitar.play.strum import StrumDetector
-from racketguitar.types import HandObs, RacketPose, StringHit
+from anystring.config import Config
+from anystring.geometry.racket import RacketFrame
+from anystring.play.strum import StrumDetector
+from anystring.types import HandObs, RacketPose, StringHit
 from tests.fakes import hand_obs, make_pose, place_hand, strum_track, uv_to_px
 
 

@@ -7,14 +7,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from racketguitar.app import LiveApp, main
-from racketguitar.config import Calibration
-from racketguitar.replay.harness import replay
-from racketguitar.replay.record import load_session
-from racketguitar.song.library import find_song
-from racketguitar.song.player import SongPlayer
-from racketguitar.song.voice import VoiceError
-from racketguitar.ui.overlay import BGR, Overlay
+from anystring.app import LiveApp, main
+from anystring.config import Calibration
+from anystring.replay.harness import replay
+from anystring.replay.record import load_session
+from anystring.song.library import find_song
+from anystring.song.player import SongPlayer
+from anystring.song.voice import VoiceError
+from anystring.ui.overlay import BGR, Overlay
 from tests.integration.test_app import lock_song, song_devices
 
 # Fast (so the scripted performance spans the whole song) and seven chords (so the
@@ -192,7 +192,7 @@ def test_song_hud_leaves_lock_prompts_clear(song_cfg, song_dir, mirror):
 def test_wrapped_lyrics_keep_every_word_and_source_column():
     import cv2
 
-    from racketguitar.ui.song_hud import FONT, wrap_lyric
+    from anystring.ui.song_hud import FONT, wrap_lyric
 
     text = "Folding paper boats with extraordinarilylongunbrokenwords down the stream"
     rows = wrap_lyric(text, 150, 0.72)
@@ -203,7 +203,7 @@ def test_wrapped_lyrics_keep_every_word_and_source_column():
 
 
 def test_song_hud_distinguishes_target_from_held_chord(song_cfg, song_dir, monkeypatch):
-    from racketguitar.ui import song_hud
+    from anystring.ui import song_hud
 
     player = SongPlayer(find_song("paper boats", song_dir).song, song_cfg)
     player.start(0)
@@ -219,7 +219,7 @@ def test_song_hud_distinguishes_target_from_held_chord(song_cfg, song_dir, monke
 
 @pytest.mark.parametrize("size", [(360, 640), (720, 1280), (1080, 1920)])
 def test_song_hud_preserves_camera_dimensions_and_play_area(song_cfg, song_dir, size):
-    from racketguitar.ui.song_hud import HUD_HEIGHT, HUD_WIDTH, draw_song_hud
+    from anystring.ui.song_hud import HUD_HEIGHT, HUD_WIDTH, draw_song_hud
 
     player = SongPlayer(find_song("paper boats", song_dir).song, song_cfg)
     player.start(0)
@@ -235,7 +235,7 @@ def test_song_hud_preserves_camera_dimensions_and_play_area(song_cfg, song_dir, 
 
 
 def test_lyrics_rise_and_gain_focus_at_their_timed_boundary(song_cfg, song_dir):
-    from racketguitar.ui.song_hud import LYRIC_FOCUS_Y, _lyric_positions
+    from anystring.ui.song_hud import LYRIC_FOCUS_Y, _lyric_positions
 
     player = SongPlayer(find_song("paper boats", song_dir).song, song_cfg)
     boundary = player.timeline.lines[1].beat
@@ -253,7 +253,7 @@ def test_lyrics_rise_and_gain_focus_at_their_timed_boundary(song_cfg, song_dir):
 
 
 def test_lyric_scroll_is_repeatable_after_seek_and_does_not_cover_controls(song_cfg, song_dir):
-    from racketguitar.ui.song_hud import (
+    from anystring.ui.song_hud import (
         LYRIC_HEIGHT,
         LYRIC_WIDTH,
         LYRIC_X,
@@ -281,8 +281,8 @@ def test_lyric_scroll_is_repeatable_after_seek_and_does_not_cover_controls(song_
 
 
 def test_long_lyrics_scroll_all_words_in_timed_pages():
-    from racketguitar.song.player import TimedLine
-    from racketguitar.ui.song_hud import _lyric_blocks
+    from anystring.song.player import TimedLine
+    from anystring.ui.song_hud import _lyric_blocks
 
     words = " ".join(f"word{i}" for i in range(90))
     blocks = _lyric_blocks((TimedLine("Verse", words, 0, 16, ()),))

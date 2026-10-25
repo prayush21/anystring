@@ -1,6 +1,6 @@
 """Measure strum-to-sound latency.
 
-``analyze REC.wav``: the PID's acceptance method. Run ``racketguitar play
+``analyze REC.wav``: the PID's acceptance method. Run ``anystring play
 --probe-tone`` (every note becomes a short 1 kHz beep) and record, with a second device
 next to the racket, yourself tapping or brushing a string a few dozen times. Taps are
 brush onsets in 3..8 kHz; the app's answers are beep onsets at 1 kHz. Each beep is
@@ -23,9 +23,9 @@ import numpy as np
 from scipy import signal as sps
 from scipy.io import wavfile
 
-from racketguitar.audio.probe import PROBE_HZ
-from racketguitar.capture.mic import detect_onsets
-from racketguitar.config import MicConfig
+from anystring.audio.probe import PROBE_HZ
+from anystring.capture.mic import detect_onsets
+from anystring.config import MicConfig
 
 __all__ = ["LatencyReport", "tap_times", "beep_times", "analyze", "main"]
 
