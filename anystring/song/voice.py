@@ -43,6 +43,10 @@ _PLAY = re.compile(r"^(?:(?:lets|let us|can we|can you|please)\s+)*(?:play|do|tr
 _START = {"start", "go", "begin", "ready", "lets go", "lets start", "start the song", "im ready"}
 _STOP = {"stop", "pause", "end", "stop the song", "enough"}
 _RESTART = {"restart", "again", "from the top", "start again", "start over", "play it again"}
+_FEEDBACK = re.compile(
+    r"\b(?:feedback|coach me|how (?:was|did|am|is) (?:that|it|i|my)\b.*"
+    r"|what (?:should|can|could) i (?:improve|do better|work on))"
+)
 
 
 class VoiceError(RuntimeError):
@@ -51,7 +55,7 @@ class VoiceError(RuntimeError):
 
 @dataclass(frozen=True)
 class Command:
-    kind: Literal["play", "start", "stop", "restart", "unknown"]
+    kind: Literal["play", "start", "stop", "restart", "feedback", "unknown"]
     text: str  # what was heard
     query: str = ""  # song title for "play"
 
@@ -70,6 +74,8 @@ def parse_command(text: str) -> Command:
         if query in ("it", "", "the song"):
             return Command("start", text)
         return Command("play", text, query)
+    if _FEEDBACK.search(words):
+        return Command("feedback", text)
     return Command("unknown", text, words)
 
 

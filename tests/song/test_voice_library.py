@@ -74,6 +74,11 @@ def test_songs_dir_is_under_home(tmp_path):
         ("Stop!", "stop", ""),
         ("From the top", "restart", ""),
         ("paper boats", "unknown", "paper boats"),
+        ("How was that?", "feedback", ""),
+        ("Give me feedback please", "feedback", ""),
+        ("how did I do", "feedback", ""),
+        ("What should I improve?", "feedback", ""),
+        ("play feedback", "play", "feedback"),  # a song title still wins after "play"
     ],
 )
 def test_parse_command(text, kind, query):

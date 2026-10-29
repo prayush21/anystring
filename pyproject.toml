@@ -14,6 +14,7 @@ dependencies = [
     "sounddevice>=0.5",
     "tomli-w>=1.0",
     "certifi>=2024.2",
+    "anthropic>=2.3.0",
 ]
 
 [project.optional-dependencies]

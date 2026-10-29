@@ -132,6 +132,7 @@ class EngineSnapshot:
     fretting: HandObs | None
     fingertips_uv: np.ndarray | None  # (k, 2) strumming fingertips, racket frame
     recent: tuple[HitRecord, ...]  # oldest first, at most RECENT_HITS
+    refractory_blocked: int = 0  # double crossings the refractory window dropped, ever
 
     def string_v(self) -> np.ndarray:
         """v of each string, indexed by string (0 = low E)."""
@@ -271,4 +272,5 @@ class Engine:
             fretting=fretting,
             fingertips_uv=self._strum.tips_uv,
             recent=self._recent_tuple,
+            refractory_blocked=self._strum.refractory_blocked,
         )

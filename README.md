@@ -5,6 +5,8 @@
 **Vibe strum on anything.** A tennis racket, a frying pan, a ruler: if you can hold it like
 a guitar, you can play it. Just your MacBook's camera, with nothing attached to the object.
 
+![A badminton racket, still in its cover, played as a guitar: the left hand moves along the handle from Am to G to C while the right hand strums](docs/media/anystring-demo.gif)
+
 Anystring follows the object in real time, overlays six virtual strings on it, picks the
 chord from where your other hand grips the handle, and plays synthesized guitar with low
 latency. Click the object's four points once in the window, hold it like a guitar, and
@@ -25,12 +27,12 @@ How it works, and what we measured, is in [docs/how-we-built-it.md](docs/how-we-
 The spec is [docs/PID.md](docs/PID.md); the architecture and repo rules are in
 [CLAUDE.md](CLAUDE.md).
 
-## Quick start for judges
+## Quick start
 
 Anystring needs real hardware: a **MacBook on Apple silicon** (its camera does all the
 tracking), headphones or speakers, and any **tennis or badminton racket** (or another guitar-shaped
 object). There is no
-web or phone version. If you cannot run it, the demo video shows the full thing; the
+web or phone version. If you cannot run it, the clip above shows it working; the
 headless test suite (`uv run pytest`) needs no hardware at all.
 
 ```bash

@@ -48,6 +48,8 @@ OWNERS = {
     "anystring/song/__init__.py": "WP0",
     "anystring/song/": "WP7",
     "tests/song/": "WP7",
+    "anystring/coach/": "WP8",
+    "tests/coach/": "WP8",
 }
 
 
@@ -97,7 +99,7 @@ def checked_files() -> list[Path]:
     files = [*(ROOT / "anystring").rglob("*.py"), *(ROOT / "tools").rglob("*.py")]
     files += [
         p
-        for d in ("vision", "play", "audio", "gate", "song")
+        for d in ("vision", "play", "audio", "gate", "song", "coach")
         for p in (ROOT / "tests" / d).rglob("*.py")
     ]
     return sorted(files)
