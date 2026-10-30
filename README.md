@@ -5,7 +5,7 @@
 **Vibe strum on anything.** A tennis racket, a frying pan, a ruler: if you can hold it like
 a guitar, you can play it. Just your MacBook's camera, with nothing attached to the object.
 
-![A badminton racket, still in its cover, played as a guitar: the left hand moves along the handle from Am to G to C while the right hand strums](docs/media/anystring-demo.gif)
+https://github.com/user-attachments/assets/856f1f30-f3e0-4dfb-bc17-c56c77791a11
 
 Anystring follows the object in real time, overlays six virtual strings on it, picks the
 chord from where your other hand grips the handle, and plays synthesized guitar with low
